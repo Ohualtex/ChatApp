@@ -5,6 +5,8 @@ namespace ChatApp.Client;
 
 internal sealed class ChatForm : Form
 {
+    private static readonly Icon WindowIcon = new(typeof(ChatForm), "Assets.app.ico");
+
     private readonly TextBox user = new() { PlaceholderText = "User name", Width = 125, MaxLength = 24 };
     private readonly TextBox host = new() { Text = "127.0.0.1", Width = 125 };
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
@@ -22,6 +24,7 @@ internal sealed class ChatForm : Form
     public ChatForm()
     {
         Text = "ChatApp";
+        Icon = WindowIcon;
         MinimumSize = new Size(590, 385);
         ClientSize = new Size(690, 480);
         StartPosition = FormStartPosition.CenterScreen;

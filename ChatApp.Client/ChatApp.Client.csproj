@@ -3,7 +3,11 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net10.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Assets/app.ico" LogicalName="ChatApp.Client.Assets.app.ico" />
+  </ItemGroup>
 </Project>
