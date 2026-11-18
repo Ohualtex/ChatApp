@@ -21,6 +21,8 @@ internal sealed class ChatForm : Form
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
+    private readonly Button presence = new() { AutoSize = true };
+    private readonly ContextMenuStrip membersMenu = new() { ShowImageMargin = false };
     private readonly Button disconnect = new() { Text = "Disconnect", AutoSize = true };
     private readonly MessageFeed messages = new();
     private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
@@ -45,6 +47,7 @@ internal sealed class ChatForm : Form
         BackColor = Canvas;
         Controls.Add(BuildLayout());
         connect.Click += async (_, _) => await ConnectAndListenAsync();
+        presence.Click += (_, _) => membersMenu.Show(presence, new Point(0, presence.Height));
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         send.Click += async (_, _) => await SendAsync();
         composer.KeyDown += async (_, e) =>
@@ -61,6 +64,7 @@ internal sealed class ChatForm : Form
             closing.Cancel();
             connection?.Dispose();
             closing.Dispose();
+            membersMenu.Dispose();
         };
         RefreshControls();
     }
@@ -101,6 +105,10 @@ internal sealed class ChatForm : Form
                 if (packet.Type == "chat")
                 {
                     messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, packet.Name == joinedName);
+                }
+                else if (packet is { Type: "presence", Users: { } users })
+                {
+                    UpdateMembers(users, joinedName);
                 }
                 else if (packet.Type == "error")
                 {
@@ -164,8 +172,27 @@ internal sealed class ChatForm : Form
         connection = null;
         connecting = false;
         previous?.Dispose();
+        UpdateMembers([], "");
         loginStatus.Text = message;
         RefreshControls();
+    }
+
+    private void UpdateMembers(string[] names, string joinedName)
+    {
+        membersMenu.Close();
+        foreach (ToolStripItem item in membersMenu.Items.Cast<ToolStripItem>().ToArray())
+        {
+            item.Dispose();
+        }
+        foreach (string name in names)
+        {
+            var row = new ToolStripLabel(name == joinedName ? $"{name} (you)" : name);
+            membersMenu.Items.Add(row);
+        }
+
+        presence.Text = $"{names.Length} online";
+        presence.AccessibleName = $"Show {names.Length} online users";
+        presence.Visible = names.Length > 0;
     }
 
     private void RefreshControls()
@@ -186,6 +213,8 @@ internal sealed class ChatForm : Form
         StyleButton(connect, primary: true);
         StyleButton(send, primary: true);
         StyleButton(disconnect, primary: false);
+        StyleButton(presence, primary: false);
+        presence.Visible = false;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
@@ -194,11 +223,12 @@ internal sealed class ChatForm : Form
 
         var header = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 4, Margin = Padding.Empty,
+            Dock = DockStyle.Fill, ColumnCount = 5, Margin = Padding.Empty,
             Padding = new Padding(18, 8, 16, 8), BackColor = Color.White
         };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.Controls.Add(new PictureBox
@@ -208,9 +238,11 @@ internal sealed class ChatForm : Form
         }, 0, 0);
         header.Controls.Add(new Label { Text = "General", Font = TitleFont, AutoSize = true, Anchor = AnchorStyles.Left }, 1, 0);
         status.Margin = new Padding(8, 0, 12, 0);
-        header.Controls.Add(status, 2, 0);
+        presence.Anchor = AnchorStyles.Left;
+        header.Controls.Add(presence, 2, 0);
+        header.Controls.Add(status, 3, 0);
         disconnect.Anchor = AnchorStyles.Right;
-        header.Controls.Add(disconnect, 3, 0);
+        header.Controls.Add(disconnect, 4, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
         login = BuildLogin();

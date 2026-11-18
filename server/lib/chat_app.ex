@@ -168,7 +168,7 @@ defmodule ChatApp.Room do
         :ok ->
           member = %{socket: socket, name: name, monitor: Process.monitor(pid)}
           updated = Map.put(members, pid, member)
-          log_members("Joined: #{name}", updated)
+          publish_members("Joined: #{name}", updated)
           {:reply, :ok, updated}
 
         {:error, _reason} ->
@@ -204,7 +204,7 @@ defmodule ChatApp.Room do
     case Map.fetch(members, pid) do
       {:ok, %{monitor: ^monitor, name: name}} ->
         updated = Map.delete(members, pid)
-        log_members("Left: #{name}", updated)
+        publish_members("Left: #{name}", updated)
         {:noreply, updated}
 
       _other ->
@@ -212,8 +212,14 @@ defmodule ChatApp.Room do
     end
   end
 
-  defp log_members(event, members) do
-    names = members |> Map.values() |> Enum.map(& &1.name) |> Enum.sort() |> Enum.join(", ")
-    Logger.info("#{event} | Connected (#{map_size(members)}): #{names}")
+  defp publish_members(event, members) do
+    names = members |> Map.values() |> Enum.map(& &1.name) |> Enum.sort()
+    packet = %{type: "presence", users: names}
+
+    Enum.each(members, fn {_pid, member} ->
+      ChatApp.Connection.send_packet(member.socket, packet)
+    end)
+
+    Logger.info("#{event} | Connected (#{map_size(members)}): #{Enum.join(names, ", ")}")
   end
 end
