@@ -13,7 +13,7 @@ internal sealed class ChatConnection : IDisposable
     private StreamReader? reader;
     private StreamWriter? writer;
 
-    public async Task ConnectAsync(string host, int port, string name, CancellationToken token)
+    public async Task<string> ConnectAsync(string host, int port, string name, CancellationToken token)
     {
         await tcp.ConnectAsync(host, port, token);
         NetworkStream stream = tcp.GetStream();
@@ -22,10 +22,12 @@ internal sealed class ChatConnection : IDisposable
         writer = new StreamWriter(stream, utf8, leaveOpen: true);
         await SendAsync(new ChatPacket("join", Name: name), token);
         ChatPacket? response = await ReadAsync(token);
-        if (response?.Type != "joined")
+        if (response is not { Type: "joined", Name: { Length: > 0 } })
         {
             throw new IOException(response?.Message ?? "The server did not accept the connection.");
         }
+
+        return response.Name;
     }
 
     public async Task SendAsync(ChatPacket packet, CancellationToken token)

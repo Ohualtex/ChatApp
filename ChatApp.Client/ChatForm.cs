@@ -7,13 +7,25 @@ internal sealed class ChatForm : Form
 {
     private static readonly Icon WindowIcon = new(typeof(ChatForm), "Assets.app.ico");
 
-    private readonly TextBox user = new() { PlaceholderText = "User name", Width = 125, MaxLength = 24 };
-    private readonly TextBox host = new() { Text = "127.0.0.1", Width = 125 };
+    private static readonly Color Accent = Color.FromArgb(8, 111, 89);
+    private static readonly Color Canvas = Color.FromArgb(243, 241, 237);
+    private static readonly Color Ink = Color.FromArgb(23, 43, 37);
+    private static readonly Color Muted = Color.FromArgb(79, 99, 90);
+    private static readonly Bitmap Logo = WindowIcon.ToBitmap();
+    private static readonly Font TitleFont = new("Segoe UI", 15, FontStyle.Bold);
+    private static readonly Font BodyFont = new("Segoe UI", 10);
+    private static readonly Font ActionFont = new("Segoe UI", 10, FontStyle.Bold);
+
+    private readonly TextBox user = new() { PlaceholderText = "User name", Dock = DockStyle.Fill, MaxLength = 24 };
+    private readonly TextBox host = new() { Text = "127.0.0.1", Dock = DockStyle.Fill };
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
     private readonly Button disconnect = new() { Text = "Disconnect", AutoSize = true };
-    private readonly ListBox messages = new() { Dock = DockStyle.Fill, IntegralHeight = false, AccessibleName = "Messages" };
+    private readonly MessageFeed messages = new();
+    private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
+    private Control login = null!;
+    private Control composerBar = null!;
     private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, PlaceholderText = "Type a message" };
     private readonly Button send = new() { Text = "Send", AutoSize = true };
     private readonly CancellationTokenSource closing = new();
@@ -26,26 +38,12 @@ internal sealed class ChatForm : Form
         Text = "ChatApp";
         Icon = WindowIcon;
         MinimumSize = new Size(590, 385);
-        ClientSize = new Size(690, 480);
+        ClientSize = new Size(780, 570);
         StartPosition = FormStartPosition.CenterScreen;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, Padding = new Padding(14), ColumnCount = 2, RowCount = 4 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
-        var settings = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Dock = DockStyle.Fill };
-        settings.Controls.AddRange([user, host, port, connect, disconnect]);
-        layout.Controls.Add(settings, 0, 0);
-        layout.SetColumnSpan(settings, 2);
-        layout.Controls.Add(status, 0, 1);
-        layout.SetColumnSpan(status, 2);
-        layout.Controls.Add(messages, 0, 2);
-        layout.SetColumnSpan(messages, 2);
-        layout.Controls.Add(composer, 0, 3);
-        layout.Controls.Add(send, 1, 3);
-        Controls.Add(layout);
+        Font = BodyFont;
+        ForeColor = Ink;
+        BackColor = Canvas;
+        Controls.Add(BuildLayout());
         connect.Click += async (_, _) => await ConnectAndListenAsync();
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         send.Click += async (_, _) => await SendAsync();
@@ -78,7 +76,7 @@ internal sealed class ChatForm : Form
         string address = host.Text.Trim();
         if (name.Length == 0 || address.Length == 0)
         {
-            status.Text = "Enter a user name and server address.";
+            loginStatus.Text = "Enter a user name and server address.";
             return;
         }
 
@@ -86,27 +84,27 @@ internal sealed class ChatForm : Form
         CancellationToken lifetime = closing.Token;
         connection = next;
         connecting = true;
-        status.Text = "Connecting…";
+        loginStatus.Text = "Connecting…";
         RefreshControls();
         try
         {
             using var handshake = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             handshake.CancelAfter(TimeSpan.FromSeconds(6));
-            await next.ConnectAsync(address, (int)port.Value, name, handshake.Token);
+            string joinedName = await next.ConnectAsync(address, (int)port.Value, name, handshake.Token);
+            messages.ClearMessages();
+            loginStatus.Text = "";
             connecting = false;
-            status.Text = $"Connected as {name}";
             RefreshControls();
             composer.Focus();
             while (await next.ReadAsync(lifetime) is { } packet && ReferenceEquals(connection, next) && !lifetime.IsCancellationRequested)
             {
                 if (packet.Type == "chat")
                 {
-                    string time = packet.Timestamp?.ToLocalTime().ToString("HH:mm:ss") ?? "--:--:--";
-                    AddLine($"{time}  {packet.Name}: {packet.Message}");
+                    messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, packet.Name == joinedName);
                 }
                 else if (packet.Type == "error")
                 {
-                    AddLine(packet.Message ?? "The server rejected a message.");
+                    messages.AddNotice(packet.Message ?? "The server rejected a message.");
                 }
             }
 
@@ -166,22 +164,131 @@ internal sealed class ChatForm : Form
         connection = null;
         connecting = false;
         previous?.Dispose();
-        status.Text = message;
+        loginStatus.Text = message;
         RefreshControls();
-    }
-
-    private void AddLine(string text)
-    {
-        messages.Items.Add(text);
-        messages.TopIndex = messages.Items.Count - 1;
     }
 
     private void RefreshControls()
     {
         bool offline = connection is null && !connecting;
-        user.Enabled = host.Enabled = port.Enabled = connect.Enabled = offline;
         bool connected = connection is not null && !connecting;
-        disconnect.Enabled = composer.Enabled = connected;
+        user.Enabled = host.Enabled = port.Enabled = connect.Enabled = offline;
+        status.Text = connected ? "Online" : connecting ? "Connecting…" : "Offline";
+        status.ForeColor = connected ? Accent : Muted;
+        login.Visible = !connected;
+        messages.Visible = composerBar.Visible = disconnect.Visible = connected;
+        composer.Enabled = connected;
         send.Enabled = connected && !sending && !string.IsNullOrWhiteSpace(composer.Text);
+    }
+
+    private Control BuildLayout()
+    {
+        StyleButton(connect, primary: true);
+        StyleButton(send, primary: true);
+        StyleButton(disconnect, primary: false);
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+
+        var header = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 4, Margin = Padding.Empty,
+            Padding = new Padding(18, 8, 16, 8), BackColor = Color.White
+        };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.Controls.Add(new PictureBox
+        {
+            Image = Logo, Size = new Size(34, 34), SizeMode = PictureBoxSizeMode.Zoom,
+            Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0)
+        }, 0, 0);
+        header.Controls.Add(new Label { Text = "General", Font = TitleFont, AutoSize = true, Anchor = AnchorStyles.Left }, 1, 0);
+        status.Margin = new Padding(8, 0, 12, 0);
+        header.Controls.Add(status, 2, 0);
+        disconnect.Anchor = AnchorStyles.Right;
+        header.Controls.Add(disconnect, 3, 0);
+
+        var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
+        login = BuildLogin();
+        body.Controls.Add(messages);
+        body.Controls.Add(login);
+
+        var bar = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true, Margin = Padding.Empty,
+            Padding = new Padding(14, 9, 14, 9), BackColor = Color.White
+        };
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        composer.Margin = new Padding(0, 5, 10, 0);
+        composer.Anchor = AnchorStyles.Left | AnchorStyles.Right;
+        bar.Controls.Add(composer, 0, 0);
+        bar.Controls.Add(send, 1, 0);
+        composerBar = bar;
+        layout.Controls.Add(header, 0, 0);
+        layout.Controls.Add(body, 0, 1);
+        layout.Controls.Add(bar, 0, 2);
+        return layout;
+    }
+
+    private Control BuildLogin()
+    {
+        var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1, BackColor = Canvas };
+        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        var card = new TableLayoutPanel
+        {
+            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Anchor = AnchorStyles.None,
+            Padding = new Padding(20), ColumnCount = 2, BackColor = Color.White
+        };
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
+        card.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 98));
+        var title = new Label { Text = "Join the chat", Font = TitleFont, AutoSize = true, Margin = new Padding(3, 0, 0, 12) };
+        card.Controls.Add(title, 0, 0);
+        card.SetColumnSpan(title, 2);
+        AddField("User name", user, 1);
+        AddField("Server address", host, 3, span: false);
+        card.Controls.Add(new Label { Text = "Port", AutoSize = true }, 1, 3);
+        port.Dock = DockStyle.Fill;
+        port.AccessibleName = "Port";
+        card.Controls.Add(port, 1, 4);
+        connect.Dock = DockStyle.Fill;
+        connect.Margin = new Padding(3, 12, 3, 0);
+        card.Controls.Add(connect, 0, 5);
+        card.SetColumnSpan(connect, 2);
+        loginStatus.ForeColor = Muted;
+        loginStatus.Margin = new Padding(3, 8, 3, 0);
+        card.Controls.Add(loginStatus, 0, 6);
+        card.SetColumnSpan(loginStatus, 2);
+        center.Controls.Add(card, 0, 0);
+        return center;
+
+        void AddField(string label, Control field, int row, bool span = true)
+        {
+            var caption = new Label { Text = label, AutoSize = true };
+            field.AccessibleName = label;
+            card.Controls.Add(caption, 0, row);
+            card.Controls.Add(field, 0, row + 1);
+            if (span)
+            {
+                card.SetColumnSpan(caption, 2);
+                card.SetColumnSpan(field, 2);
+            }
+        }
+    }
+
+    private static void StyleButton(Button button, bool primary)
+    {
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.FlatAppearance.BorderSize = 0;
+        button.Font = ActionFont;
+        button.Padding = new Padding(12, 4, 12, 4);
+        button.BackColor = primary ? Accent : Color.FromArgb(234, 244, 239);
+        button.ForeColor = primary ? Color.White : Ink;
     }
 }
