@@ -22,7 +22,7 @@ internal sealed class ChatForm : Form
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
     private readonly Button membersToggle = new() { Text = "General", AutoSize = true };
-    private readonly Panel membersDrawer = new() { Dock = DockStyle.Right, Width = 205, BackColor = Color.White };
+    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 205, BackColor = Color.White };
     private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
     private readonly ListBox memberList = new()
     {
