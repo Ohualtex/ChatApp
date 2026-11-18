@@ -63,6 +63,7 @@ internal sealed class MessageFeed : Panel
         base.OnSizeChanged(e);
         viewportHeight = ClientSize.Height;
         LayoutRows();
+        PerformLayout();
         AutoScrollPosition = new Point(0, follow ? BottomOffset() : offset);
     }
 

@@ -21,8 +21,15 @@ internal sealed class ChatForm : Form
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
-    private readonly Button presence = new() { AutoSize = true };
-    private readonly ContextMenuStrip membersMenu = new() { ShowImageMargin = false };
+    private readonly Button membersToggle = new() { Text = "General", AutoSize = true };
+    private readonly Panel membersDrawer = new() { Dock = DockStyle.Right, Width = 205, BackColor = Color.White };
+    private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
+    private readonly ListBox memberList = new()
+    {
+        Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false,
+        AccessibleName = "Online members"
+    };
+    private readonly Button closeMembers = new() { Text = "×", AccessibleName = "Close members", Size = new Size(36, 36) };
     private readonly Button disconnect = new() { Text = "Disconnect", AutoSize = true };
     private readonly MessageFeed messages = new();
     private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
@@ -47,7 +54,8 @@ internal sealed class ChatForm : Form
         BackColor = Canvas;
         Controls.Add(BuildLayout());
         connect.Click += async (_, _) => await ConnectAndListenAsync();
-        presence.Click += (_, _) => membersMenu.Show(presence, new Point(0, presence.Height));
+        membersToggle.Click += (_, _) => SetMembersDrawer(!membersDrawer.Visible);
+        closeMembers.Click += (_, _) => SetMembersDrawer(false);
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         send.Click += async (_, _) => await SendAsync();
         composer.KeyDown += async (_, e) =>
@@ -64,7 +72,6 @@ internal sealed class ChatForm : Form
             closing.Cancel();
             connection?.Dispose();
             closing.Dispose();
-            membersMenu.Dispose();
         };
         RefreshControls();
     }
@@ -172,6 +179,7 @@ internal sealed class ChatForm : Form
         connection = null;
         connecting = false;
         previous?.Dispose();
+        SetMembersDrawer(false);
         UpdateMembers([], "");
         loginStatus.Text = message;
         RefreshControls();
@@ -179,20 +187,38 @@ internal sealed class ChatForm : Form
 
     private void UpdateMembers(string[] names, string joinedName)
     {
-        membersMenu.Close();
-        foreach (ToolStripItem item in membersMenu.Items.Cast<ToolStripItem>().ToArray())
+        memberList.BeginUpdate();
+        try
         {
-            item.Dispose();
+            memberList.Items.Clear();
+            memberList.Items.AddRange(names.Select(name => name == joinedName ? $"{name} (you)" : name).ToArray());
+            memberCount.Text = $"{names.Length} online";
         }
-        foreach (string name in names)
+        finally
         {
-            var row = new ToolStripLabel(name == joinedName ? $"{name} (you)" : name);
-            membersMenu.Items.Add(row);
+            memberList.EndUpdate();
+        }
+    }
+
+    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+    {
+        if (keyData == Keys.Escape && membersDrawer.Visible)
+        {
+            SetMembersDrawer(false);
+            return true;
         }
 
-        presence.Text = $"{names.Length} online";
-        presence.AccessibleName = $"Show {names.Length} online users";
-        presence.Visible = names.Length > 0;
+        return base.ProcessCmdKey(ref msg, keyData);
+    }
+
+    private void SetMembersDrawer(bool open)
+    {
+        membersDrawer.Visible = open;
+        membersToggle.AccessibleName = open ? "General, hide online members" : "General, show online members";
+        if (!open && membersToggle.Enabled)
+        {
+            membersToggle.Focus();
+        }
     }
 
     private void RefreshControls()
@@ -204,6 +230,7 @@ internal sealed class ChatForm : Form
         status.ForeColor = connected ? Accent : Muted;
         login.Visible = !connected;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
+        membersToggle.Enabled = connected;
         composer.Enabled = connected;
         send.Enabled = connected && !sending && !string.IsNullOrWhiteSpace(composer.Text);
     }
@@ -213,8 +240,14 @@ internal sealed class ChatForm : Form
         StyleButton(connect, primary: true);
         StyleButton(send, primary: true);
         StyleButton(disconnect, primary: false);
-        StyleButton(presence, primary: false);
-        presence.Visible = false;
+        StyleButton(membersToggle, primary: false);
+        membersToggle.Font = TitleFont;
+        membersToggle.BackColor = Color.White;
+        membersToggle.Padding = Padding.Empty;
+        membersToggle.AccessibleName = "General, show online members";
+        membersToggle.Anchor = AnchorStyles.Left;
+        StyleButton(closeMembers, primary: false);
+        closeMembers.Padding = Padding.Empty;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
@@ -223,12 +256,11 @@ internal sealed class ChatForm : Form
 
         var header = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 5, Margin = Padding.Empty,
+            Dock = DockStyle.Fill, ColumnCount = 4, Margin = Padding.Empty,
             Padding = new Padding(18, 8, 16, 8), BackColor = Color.White
         };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.Controls.Add(new PictureBox
@@ -236,17 +268,17 @@ internal sealed class ChatForm : Form
             Image = Logo, Size = new Size(34, 34), SizeMode = PictureBoxSizeMode.Zoom,
             Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0)
         }, 0, 0);
-        header.Controls.Add(new Label { Text = "General", Font = TitleFont, AutoSize = true, Anchor = AnchorStyles.Left }, 1, 0);
+        header.Controls.Add(membersToggle, 1, 0);
         status.Margin = new Padding(8, 0, 12, 0);
-        presence.Anchor = AnchorStyles.Left;
-        header.Controls.Add(presence, 2, 0);
-        header.Controls.Add(status, 3, 0);
+        header.Controls.Add(status, 2, 0);
         disconnect.Anchor = AnchorStyles.Right;
-        header.Controls.Add(disconnect, 4, 0);
+        header.Controls.Add(disconnect, 3, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
         login = BuildLogin();
         body.Controls.Add(messages);
+        BuildMembersDrawer();
+        body.Controls.Add(membersDrawer);
         body.Controls.Add(login);
 
         var bar = new TableLayoutPanel
@@ -265,6 +297,28 @@ internal sealed class ChatForm : Form
         layout.Controls.Add(body, 0, 1);
         layout.Controls.Add(bar, 0, 2);
         return layout;
+    }
+
+    private void BuildMembersDrawer()
+    {
+        var layout = new TableLayoutPanel
+        {
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12)
+        };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        layout.Controls.Add(new Label { Text = "Members", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
+        layout.Controls.Add(closeMembers, 1, 0);
+        layout.Controls.Add(memberCount, 0, 1);
+        layout.SetColumnSpan(memberCount, 2);
+        memberList.Margin = new Padding(3, 9, 3, 0);
+        layout.Controls.Add(memberList, 0, 2);
+        layout.SetColumnSpan(memberList, 2);
+        membersDrawer.Controls.Add(layout);
+        membersDrawer.Visible = false;
     }
 
     private Control BuildLogin()
