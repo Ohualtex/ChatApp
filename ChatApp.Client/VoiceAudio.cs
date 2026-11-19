@@ -1,4 +1,3 @@
-using System.Buffers.Binary;
 using System.Media;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -53,13 +52,37 @@ internal static class WaveAudio
         : $"{(int)time.TotalMinutes}:{time.Seconds:00}";
 }
 
+internal sealed class VoiceClip : IDisposable
+{
+    public string Path { get; }
+    public TimeSpan Duration { get; }
+    public string FileName => "voice-message.wav";
+    public static string NewPath() => System.IO.Path.Combine(System.IO.Path.GetTempPath(), "chatapp-voice-" + Guid.NewGuid().ToString("N") + ".wav");
+
+    public VoiceClip(string path)
+    {
+        using var stream = File.OpenRead(path);
+        Duration = WaveAudio.Duration(stream);
+        Path = path;
+    }
+
+    public void Dispose() => DeleteTemporary(Path);
+
+    public static void DeleteTemporary(string path)
+    {
+        try { File.Delete(path); }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException) { }
+    }
+}
+
 internal sealed class VoicePlayback : IDisposable
 {
     private static VoicePlayback? active;
     private readonly System.Windows.Forms.Timer timer = new();
     private SoundPlayer? player;
     private MemoryStream? stream;
-    public bool Playing => player is not null;
+    private string? alias;
+    public bool Playing => player is not null || alias is not null;
     public event Action? Changed;
 
     public VoicePlayback() => timer.Tick += (_, _) => Stop();
@@ -86,9 +109,30 @@ internal sealed class VoicePlayback : IDisposable
         }
     }
 
+    public void Play(VoiceClip clip)
+    {
+        active?.Stop();
+        try
+        {
+            alias = "play" + Guid.NewGuid().ToString("N");
+            NativeAudio.Command($"open \"{clip.Path}\" type waveaudio alias {alias}");
+            NativeAudio.Command($"play {alias}");
+            active = this;
+            timer.Interval = (int)Math.Clamp(clip.Duration.TotalMilliseconds + 100, 100, int.MaxValue);
+            timer.Start();
+            Changed?.Invoke();
+        }
+        catch { Stop(); throw; }
+    }
+
     public void Stop()
     {
         timer.Stop();
+        if (alias is not null)
+        {
+            NativeAudio.Close(alias);
+            alias = null;
+        }
         player?.Stop();
         player?.Dispose();
         player = null;
@@ -103,4 +147,24 @@ internal sealed class VoicePlayback : IDisposable
         Stop();
         timer.Dispose();
     }
+}
+
+internal static class NativeAudio
+{
+    public static void Command(string command)
+    {
+        uint result = MciSendString(command, null, 0, IntPtr.Zero);
+        if (result == 0) return;
+        var text = new StringBuilder(256);
+        MciGetErrorString(result, text, text.Capacity);
+        throw new IOException("Audio operation failed. " + text);
+    }
+
+    public static void Close(string alias) => MciSendString($"close {alias}", null, 0, IntPtr.Zero);
+
+    [DllImport("winmm.dll", EntryPoint = "mciSendStringW", CharSet = CharSet.Unicode)]
+    private static extern uint MciSendString(string command, StringBuilder? result, int length, IntPtr callback);
+    [DllImport("winmm.dll", EntryPoint = "mciGetErrorStringW", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool MciGetErrorString(uint error, StringBuilder text, int length);
 }
