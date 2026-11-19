@@ -31,19 +31,19 @@ internal sealed class RoundedPanel : Panel
         ResizeRedraw = true;
     }
 
-    protected override void OnSizeChanged(EventArgs e)
+    protected override void OnPaintBackground(PaintEventArgs e)
     {
-        base.OnSizeChanged(e);
+        e.Graphics.Clear(Parent?.BackColor ?? ChatTheme.Canvas);
         if (Width < 1 || Height < 1) return;
-        float diameter = Math.Min(18, Math.Min(Width, Height));
+        float diameter = Math.Min(20, Math.Min(Width, Height));
         using var path = new GraphicsPath();
         path.AddArc(0, 0, diameter, diameter, 180, 90);
-        path.AddArc(Width - diameter, 0, diameter, diameter, 270, 90);
-        path.AddArc(Width - diameter, Height - diameter, diameter, diameter, 0, 90);
-        path.AddArc(0, Height - diameter, diameter, diameter, 90, 90);
+        path.AddArc(Width - diameter - 1, 0, diameter, diameter, 270, 90);
+        path.AddArc(Width - diameter - 1, Height - diameter - 1, diameter, diameter, 0, 90);
+        path.AddArc(0, Height - diameter - 1, diameter, diameter, 90, 90);
         path.CloseFigure();
-        Region? previous = Region;
-        Region = new Region(path);
-        previous?.Dispose();
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var fill = new SolidBrush(BackColor);
+        e.Graphics.FillPath(fill, path);
     }
 }

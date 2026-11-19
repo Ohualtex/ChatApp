@@ -22,7 +22,7 @@ internal sealed class ChatForm : Form
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
     private readonly Button membersToggle = new() { Text = "General", AutoSize = true };
-    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 300, BackColor = ChatTheme.Canvas };
+    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 320, BackColor = ChatTheme.Canvas };
     private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
     private readonly ListBox memberList = new()
     {
@@ -53,6 +53,9 @@ internal sealed class ChatForm : Form
     private readonly Dictionary<string, Conversation> conversations = new(StringComparer.Ordinal);
     private Conversation selected = new(null);
     private bool refreshingChats;
+    private Panel? chatArea;
+    private Control? chatContent;
+    private bool compactLayout;
 
     public ChatForm()
     {
@@ -371,6 +374,7 @@ internal sealed class ChatForm : Form
     private void SetMembersDrawer(bool open)
     {
         membersDrawer.Visible = open;
+        LayoutChatColumns();
         membersToggle.AccessibleName = open ? $"{selected.Title}, hide chats" : $"{selected.Title}, show chats";
         if (!open && membersToggle.Enabled)
         {
@@ -396,10 +400,18 @@ internal sealed class ChatForm : Form
     protected override void OnClientSizeChanged(EventArgs e)
     {
         base.OnClientSizeChanged(e);
-        if (membersDrawer is not null && ClientSize.Width < 850)
-        {
+        bool compact = ClientSize.Width < 850;
+        if (compact && !compactLayout && membersDrawer is not null)
             membersDrawer.Visible = false;
-        }
+        compactLayout = compact;
+        LayoutChatColumns();
+    }
+
+    private void LayoutChatColumns()
+    {
+        if (chatArea is null || chatContent is null) return;
+        membersDrawer.Width = ClientSize.Width < 850 ? chatArea.ClientSize.Width : 320;
+        chatContent.Visible = ClientSize.Width >= 850 || !membersDrawer.Visible;
     }
 
     private Control BuildLayout()
@@ -425,12 +437,17 @@ internal sealed class ChatForm : Form
         rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
         rail.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        rail.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         int navIndex = 0;
         foreach (Button button in new[] { chatsNav, accountNav, settingsNav })
         {
             StyleButton(button, primary: false);
             button.Font = new Font("Segoe MDL2 Assets", 16);
             button.Padding = Padding.Empty;
+            button.Margin = new Padding(0, 2, 0, 2);
+            button.AutoSize = false;
+            button.MinimumSize = Size.Empty;
+            button.Size = new Size(44, 44);
             button.Dock = DockStyle.Fill;
             tips.SetToolTip(button, button.AccessibleName);
             rail.Controls.Add(button, 0, navIndex == 2 ? 3 : navIndex);
@@ -441,7 +458,7 @@ internal sealed class ChatForm : Form
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
 
         var header = new TableLayoutPanel
         {
@@ -461,6 +478,8 @@ internal sealed class ChatForm : Form
         status.Margin = new Padding(8, 0, 12, 0);
         header.Controls.Add(status, 2, 0);
         disconnect.Anchor = AnchorStyles.Right;
+        disconnect.Margin = Padding.Empty;
+        membersToggle.Margin = new Padding(4, 0, 8, 0);
         header.Controls.Add(disconnect, 3, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
@@ -472,18 +491,28 @@ internal sealed class ChatForm : Form
 
         var bar = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true, Margin = Padding.Empty,
+            Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = false, Margin = Padding.Empty,
             Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface
         };
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        composer.Margin = new Padding(0, 5, 10, 0);
-        composer.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        var inputShell = new RoundedPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 9),
-            MinimumSize = new Size(100, 46), Size = new Size(100, 46), BackColor = ChatTheme.Raised, Margin = new Padding(0, 0, 10, 0) };
+        composer.Margin = Padding.Empty;
+        var inputShell = new RoundedPanel
+        {
+            Dock = DockStyle.Fill, Padding = new Padding(14, 13, 14, 9),
+            BackColor = ChatTheme.Raised, Margin = new Padding(0, 0, 10, 0)
+        };
         composer.BorderStyle = BorderStyle.None;
+        composer.Dock = DockStyle.Fill;
         composer.Margin = Padding.Empty;
         inputShell.Controls.Add(composer);
+        send.AutoSize = false;
+        send.Size = new Size(76, 44);
+        send.Margin = Padding.Empty;
+        send.Anchor = AnchorStyles.None;
+        bar.RowCount = 1;
+        bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        bar.ColumnStyles[1] = new ColumnStyle(SizeType.Absolute, 76);
         bar.Controls.Add(inputShell, 0, 0);
         bar.Controls.Add(send, 1, 0);
         composerBar = bar;
@@ -491,6 +520,9 @@ internal sealed class ChatForm : Form
         right.Controls.Add(body, 0, 1);
         right.Controls.Add(bar, 0, 2);
         var main = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+        chatArea = main;
+        chatContent = right;
+        main.SizeChanged += (_, _) => LayoutChatColumns();
         main.Controls.Add(right);
         main.Controls.Add(membersDrawer);
         layout.Controls.Add(rail, 0, 0);
@@ -515,18 +547,22 @@ internal sealed class ChatForm : Form
     {
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(14, 14, 14, 0)
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(14, 0, 14, 0), Margin = Padding.Empty
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
+        closeMembers.Anchor = AnchorStyles.Right;
+        closeMembers.Margin = Padding.Empty;
         layout.Controls.Add(closeMembers, 1, 0);
         StyleInput(search);
-        search.Margin = new Padding(0, 8, 0, 8);
+        search.Margin = new Padding(0, 7, 0, 7);
+        search.Dock = DockStyle.None;
+        search.Anchor = AnchorStyles.Left | AnchorStyles.Right;
         layout.Controls.Add(search, 0, 1);
         layout.SetColumnSpan(search, 2);
         layout.Controls.Add(memberCount, 0, 2);
