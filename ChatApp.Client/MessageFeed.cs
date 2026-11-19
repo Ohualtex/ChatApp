@@ -120,6 +120,8 @@ internal sealed class MessageFeed : Panel
         private readonly Label timeLabel;
         private readonly PictureBox? photo;
         private readonly Button? save;
+        private readonly Button? play;
+        private readonly VoicePlayback? playback;
         private readonly bool outgoing;
         private readonly bool notice;
 
@@ -143,8 +145,35 @@ internal sealed class MessageFeed : Panel
                 {
                     string size = bytes.Length < 1024 ? $"{bytes.Length} B" : $"{bytes.Length / 1024d:N0} KB";
                     message = $"{attachment.DisplayName}\n{size}";
+                    if (attachment.ContentType == "audio/wav")
+                    {
+                        try
+                        {
+                            TimeSpan duration = WaveAudio.Duration(bytes);
+                            message = "Voice message  " + duration.ToString(@"mm\:ss");
+                            playback = new VoicePlayback();
+                            play = new Button { Text = "Play", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                                BackColor = ChatTheme.Surface, ForeColor = Ink };
+                            playback.Changed += () => play.Text = playback.Playing ? "Stop" : "Play";
+                            play.Click += (_, _) =>
+                            {
+                                if (playback.Playing) { playback.Stop(); return; }
+                                try { playback.Play(bytes); }
+                                catch (Exception error) when (error is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                                {
+                                    MessageBox.Show(FindForm(), error.Message, "Could not play recording",
+                                        MessageBoxButtons.OK, MessageBoxIcon.Error);
+                                }
+                            };
+                            bubble.Controls.Add(play);
+                        }
+                        catch (IOException)
+                        {
+                            // Non-PCM or damaged WAV attachments remain downloadable files.
+                        }
+                    }
                     if (attachment.ContentType.StartsWith("video/", StringComparison.Ordinal))
-                        message = "Video · " + message;
+                        message = "Video Â· " + message;
                     if (attachment.ContentType.StartsWith("image/", StringComparison.Ordinal))
                     {
                         try
@@ -165,7 +194,7 @@ internal sealed class MessageFeed : Panel
                             // Unsupported image formats remain downloadable file cards.
                         }
                     }
-                    save = new Button { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                    save = new Button { Text = "Saveâ€¦", AutoSize = true, FlatStyle = FlatStyle.Flat,
                         BackColor = ChatTheme.Surface, ForeColor = Ink };
                     save.Click += async (_, _) =>
                     {
@@ -213,9 +242,15 @@ internal sealed class MessageFeed : Panel
             PlaceLabel(messageLabel);
             if (save is not null)
             {
-                save.Location = new Point(horizontalPadding, y + 6);
-                y += save.Height + 12;
-                textWidth = Math.Max(textWidth, save.Width);
+                int actionLeft = horizontalPadding;
+                if (play is not null)
+                {
+                    play.Location = new Point(actionLeft, y + 6);
+                    actionLeft += play.Width + 8;
+                }
+                save.Location = new Point(actionLeft, y + 6);
+                y += Math.Max(save.Height, play?.Height ?? 0) + 12;
+                textWidth = Math.Max(textWidth, actionLeft - horizontalPadding + save.Width);
             }
             if (timeLabel.Text.Length > 0)
             {
@@ -241,7 +276,11 @@ internal sealed class MessageFeed : Panel
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing) photo?.Image?.Dispose();
+            if (disposing)
+            {
+                playback?.Dispose();
+                photo?.Image?.Dispose();
+            }
             base.Dispose(disposing);
         }
 

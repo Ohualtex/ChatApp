@@ -45,6 +45,8 @@ internal sealed class ChatForm : Form
     private Control composerBar = null!;
     private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, PlaceholderText = "Type a message" };
     private readonly Button attach = new() { Text = "+", AccessibleName = "Attach a file", AutoSize = true };
+    private readonly Button voice = new() { Text = "\uE720", AccessibleName = "Record a voice message" };
+    private VoiceMessageDialog? voiceDialog;
     private readonly Button send = new() { Text = "Send", AutoSize = true };
     private readonly CancellationTokenSource closing = new();
     private ChatConnection? connection;
@@ -96,6 +98,7 @@ internal sealed class ChatForm : Form
         closeMembers.Click += (_, _) => SetMembersDrawer(false);
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         attach.Click += async (_, _) => await PickAttachmentAsync();
+        voice.Click += async (_, _) => await RecordVoiceAsync();
         send.Click += async (_, _) => await SendAsync();
         composer.KeyDown += async (_, e) =>
         {
@@ -108,6 +111,7 @@ internal sealed class ChatForm : Form
         composer.TextChanged += (_, _) => RefreshControls();
         FormClosed += (_, _) =>
         {
+            voiceDialog?.Close();
             closing.Cancel();
             connection?.Dispose();
             closing.Dispose();
@@ -227,6 +231,23 @@ internal sealed class ChatForm : Form
         }
     }
 
+    private async Task RecordVoiceAsync()
+    {
+        if (connection is not { } current || connecting || sending || !selected.Online) return;
+        Conversation destination = selected;
+        using var dialog = new VoiceMessageDialog(destination.Title);
+        voiceDialog = dialog;
+        try
+        {
+            if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Attachment is { } attachment)
+            {
+                if (ReferenceEquals(connection, current) && destination.Online)
+                    await SendAttachmentAsync(attachment, destination);
+            }
+        }
+        finally { voiceDialog = null; }
+    }
+
     private async Task PickAttachmentAsync()
     {
         if (connection is not { } current || connecting || sending || !selected.Online) return;
@@ -281,6 +302,7 @@ internal sealed class ChatForm : Form
         connection = null;
         connecting = false;
         previous?.Dispose();
+        voiceDialog?.Close();
         SetMembersDrawer(false);
         UpdateMembers([], "");
         loginStatus.Text = message;
@@ -443,7 +465,7 @@ internal sealed class ChatForm : Form
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
         chatsNav.Enabled = connected;
-        attach.Enabled = connected && selected.Online && !sending;
+        attach.Enabled = voice.Enabled = connected && selected.Online && !sending;
         composer.Enabled = connected && selected.Online;
         send.Enabled = connected && selected.Online && !sending && !string.IsNullOrWhiteSpace(composer.Text);
     }
@@ -469,6 +491,10 @@ internal sealed class ChatForm : Form
     {
         StyleButton(connect, primary: true);
         StyleButton(send, primary: true);
+        StyleButton(voice, primary: false);
+        voice.Font = new Font("Segoe MDL2 Assets", 16);
+        voice.Padding = Padding.Empty;
+        tips.SetToolTip(voice, "Record a voice message");
         StyleButton(attach, primary: false);
         attach.Font = TitleFont;
         tips.SetToolTip(attach, "Attach photo, video or file (up to 10 MB)");
@@ -545,11 +571,12 @@ internal sealed class ChatForm : Form
 
         var bar = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true, Margin = Padding.Empty,
+            Dock = DockStyle.Fill, ColumnCount = 4, AutoSize = true, Margin = Padding.Empty,
             Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface
         };
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         composer.Margin = Padding.Empty;
         var inputShell = new RoundedPanel
@@ -561,10 +588,10 @@ internal sealed class ChatForm : Form
         composer.Dock = DockStyle.Fill;
         composer.Margin = Padding.Empty;
         inputShell.Controls.Add(composer);
-        foreach (Button action in new[] { attach, send })
+        foreach (Button action in new[] { attach, voice, send })
         {
             action.AutoSize = false;
-            action.Size = new Size(action == attach ? 44 : 76, 44);
+            action.Size = new Size(action == send ? 76 : 44, 44);
             action.Margin = Padding.Empty;
             action.Anchor = AnchorStyles.None;
         }
@@ -572,10 +599,12 @@ internal sealed class ChatForm : Form
         bar.RowCount = 1;
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         bar.ColumnStyles[0] = new ColumnStyle(SizeType.Absolute, 44);
-        bar.ColumnStyles[2] = new ColumnStyle(SizeType.Absolute, 76);
+        bar.ColumnStyles[3] = new ColumnStyle(SizeType.Absolute, 76);
         bar.Controls.Add(attach, 0, 0);
         bar.Controls.Add(inputShell, 1, 0);
-        bar.Controls.Add(send, 2, 0);
+        voice.Margin = new Padding(0, 0, 4, 0);
+        bar.Controls.Add(voice, 2, 0);
+        bar.Controls.Add(send, 3, 0);
         composerBar = bar;
         right.Controls.Add(header, 0, 0);
         right.Controls.Add(body, 0, 1);
