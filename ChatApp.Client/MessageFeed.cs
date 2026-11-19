@@ -2,10 +2,10 @@ namespace ChatApp.Client;
 
 internal sealed class MessageFeed : Panel
 {
-    private static readonly Color Canvas = Color.FromArgb(243, 241, 237);
-    private static readonly Color SentFill = Color.FromArgb(217, 244, 229);
-    private static readonly Color Ink = Color.FromArgb(23, 43, 37);
-    private static readonly Color Muted = Color.FromArgb(79, 99, 90);
+    private static readonly Color Canvas = ChatTheme.Canvas;
+    private static readonly Color SentFill = ChatTheme.Sent;
+    private static readonly Color Ink = ChatTheme.Ink;
+    private static readonly Color Muted = ChatTheme.Muted;
     private static readonly Font BodyFont = new("Segoe UI", 10);
     private static readonly Font MetaFont = new("Segoe UI", 8);
     private static readonly Font SenderFont = new("Segoe UI", 9, FontStyle.Bold);
@@ -20,6 +20,21 @@ internal sealed class MessageFeed : Panel
         BackColor = Canvas;
         AccessibleName = "Chat messages";
         viewportHeight = ClientSize.Height;
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+    {
+        base.OnPaintBackground(e);
+        using var line = new Pen(Color.FromArgb(30, 33, 32), 1);
+        for (int y = 24; y < Height; y += 110)
+        {
+            for (int x = 22; x < Width; x += 130)
+            {
+                e.Graphics.DrawArc(line, x, y, 36, 32, 0, 300);
+                e.Graphics.DrawLine(line, x + 2, y + 25, x - 2, y + 35);
+                e.Graphics.DrawLine(line, x - 2, y + 35, x + 11, y + 30);
+            }
+        }
     }
 
     public void ClearMessages()
@@ -103,7 +118,7 @@ internal sealed class MessageFeed : Panel
         {
             this.outgoing = outgoing;
             this.notice = notice;
-            bubble = new Panel { BackColor = notice ? Canvas : outgoing ? SentFill : Color.White };
+            bubble = new RoundedPanel { BackColor = notice ? Canvas : outgoing ? SentFill : ChatTheme.Raised };
             if (sender is not null)
             {
                 senderLabel = CreateLabel(sender, SenderFont, Ink);

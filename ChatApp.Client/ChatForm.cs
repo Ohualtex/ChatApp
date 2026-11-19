@@ -7,10 +7,10 @@ internal sealed class ChatForm : Form
 {
     private static readonly Icon WindowIcon = new(typeof(ChatForm), "Assets.app.ico");
 
-    private static readonly Color Accent = Color.FromArgb(8, 111, 89);
-    private static readonly Color Canvas = Color.FromArgb(243, 241, 237);
-    private static readonly Color Ink = Color.FromArgb(23, 43, 37);
-    private static readonly Color Muted = Color.FromArgb(79, 99, 90);
+    private static readonly Color Accent = ChatTheme.Accent;
+    private static readonly Color Canvas = ChatTheme.Canvas;
+    private static readonly Color Ink = ChatTheme.Ink;
+    private static readonly Color Muted = ChatTheme.Muted;
     private static readonly Bitmap Logo = WindowIcon.ToBitmap();
     private static readonly Font TitleFont = new("Segoe UI", 15, FontStyle.Bold);
     private static readonly Font BodyFont = new("Segoe UI", 10);
@@ -22,14 +22,22 @@ internal sealed class ChatForm : Form
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
     private readonly Button membersToggle = new() { Text = "General", AutoSize = true };
-    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 240, BackColor = Color.White };
+    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 300, BackColor = ChatTheme.Canvas };
     private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
     private readonly ListBox memberList = new()
     {
         Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false,
-        AccessibleName = "Conversations", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 64
+        BackColor = ChatTheme.Canvas, ForeColor = Ink, AccessibleName = "Conversations", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 76
     };
     private readonly Button closeMembers = new() { Text = "×", AccessibleName = "Close members", Size = new Size(36, 36) };
+    private readonly TextBox search = new() { PlaceholderText = "Search chats", Dock = DockStyle.Fill };
+    private readonly Button chatsNav = new() { Text = "\uE8F2", AccessibleName = "Toggle chats" };
+    private readonly Button accountNav = new() { Text = "\uE77B", AccessibleName = "Account" };
+    private readonly Button settingsNav = new() { Text = "\uE713", AccessibleName = "Settings" };
+    private readonly ToolTip tips = new();
+    private Control chatsContent = null!;
+    private Control settingsContent = null!;
+    private readonly Label accountSummary = new() { AutoSize = true, MaximumSize = new Size(240, 0) };
     private readonly Button disconnect = new() { Text = "Disconnect", AutoSize = true };
     private readonly MessageFeed messages = new();
     private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
@@ -50,13 +58,27 @@ internal sealed class ChatForm : Form
     {
         Text = "ChatApp";
         Icon = WindowIcon;
-        MinimumSize = new Size(590, 385);
-        ClientSize = new Size(900, 600);
+        MinimumSize = new Size(650, 440);
+        ClientSize = new Size(1120, 720);
         StartPosition = FormStartPosition.CenterScreen;
         Font = BodyFont;
         ForeColor = Ink;
         BackColor = Canvas;
         Controls.Add(BuildLayout());
+        chatsNav.Click += (_, _) =>
+        {
+            if (settingsContent.Visible)
+            {
+                settingsContent.Visible = false;
+                chatsContent.Visible = true;
+                SetMembersDrawer(true);
+            }
+            else SetMembersDrawer(!membersDrawer.Visible);
+        };
+        settingsNav.Click += (_, _) => ShowSettings();
+        accountNav.Click += (_, _) => ShowSettings();
+        search.TextChanged += (_, _) => RefreshConversationList();
+        Shown += (_, _) => ChatTheme.DarkTitle(this);
         connect.Click += async (_, _) => await ConnectAndListenAsync();
         membersToggle.Click += (_, _) => SetMembersDrawer(!membersDrawer.Visible);
         memberList.DrawItem += DrawConversation;
@@ -84,6 +106,7 @@ internal sealed class ChatForm : Form
             closing.Cancel();
             connection?.Dispose();
             closing.Dispose();
+            tips.Dispose();
         };
         RefreshControls();
     }
@@ -118,6 +141,7 @@ internal sealed class ChatForm : Form
             selected = new Conversation(null);
             conversations.Add("", selected);
             membersToggle.Text = selected.Title;
+            search.Clear();
             messages.ClearMessages();
             composer.Clear();
             RefreshConversationList();
@@ -269,6 +293,16 @@ internal sealed class ChatForm : Form
         RefreshControls();
     }
 
+    private void ShowSettings()
+    {
+        accountSummary.Text = connection is not null && !connecting
+            ? $"Signed in as {joinedName}\n\nServer\n{host.Text}:{port.Value}\n\nAppearance\nDark"
+            : "Connect to a server to start chatting.\n\nAppearance\nDark";
+        chatsContent.Visible = false;
+        settingsContent.Visible = true;
+        SetMembersDrawer(true);
+    }
+
     private void RefreshConversationList()
     {
         refreshingChats = true;
@@ -279,7 +313,11 @@ internal sealed class ChatForm : Form
             foreach (Conversation chat in conversations.Values.OrderBy(chat => chat.Peer is not null)
                 .ThenBy(chat => chat.Title, StringComparer.OrdinalIgnoreCase))
             {
-                memberList.Items.Add(chat);
+                if (chat.Title.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase)
+                    || chat.Preview.Contains(search.Text.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    memberList.Items.Add(chat);
+                }
             }
             memberList.SelectedItem = selected;
         }
@@ -294,25 +332,29 @@ internal sealed class ChatForm : Form
     {
         if (e.Index < 0) return;
         var chat = (Conversation)memberList.Items[e.Index];
-        bool active = ReferenceEquals(chat, selected);
-        using var fill = new SolidBrush(active ? Color.FromArgb(217, 244, 229) : Color.White);
+        using var fill = new SolidBrush(ReferenceEquals(chat, selected) ? ChatTheme.Raised : Canvas);
         e.Graphics.FillRectangle(fill, e.Bounds);
-        int badgeSpace = chat.Unread > 0 ? 36 : 0;
-        var title = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 8, e.Bounds.Width - 20 - badgeSpace, 24);
-        var preview = new Rectangle(title.X, e.Bounds.Y + 34, title.Width, 21);
-        TextRenderer.DrawText(e.Graphics, chat.Title, ActionFont, title, Ink,
-            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        TextRenderer.DrawText(e.Graphics, chat.Preview, BodyFont, preview, Muted,
-            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        var avatar = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 15, 44, 44);
+        using var circle = new SolidBrush(ChatTheme.Surface);
+        e.Graphics.FillEllipse(circle, avatar);
+        TextRenderer.DrawText(e.Graphics, chat.Peer is null ? "#" : System.Globalization.StringInfo.GetNextTextElement(chat.Title).ToUpperInvariant(),
+            ActionFont, avatar, Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        int left = e.Bounds.X + 66;
+        var title = new Rectangle(left, e.Bounds.Y + 12, Math.Max(1, e.Bounds.Width - 130), 24);
+        var preview = new Rectangle(left, e.Bounds.Y + 39, Math.Max(1, e.Bounds.Width - 110), 22);
+        TextRenderer.DrawText(e.Graphics, chat.Title, ActionFont, title, Ink, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(e.Graphics, chat.Preview, BodyFont, preview, Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        string time = chat.Messages.LastOrDefault()?.Timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
+        TextRenderer.DrawText(e.Graphics, time, Font, new Rectangle(e.Bounds.Right - 58, e.Bounds.Y + 13, 50, 20),
+            Muted, TextFormatFlags.Right);
         if (chat.Unread > 0)
         {
-            var badge = new Rectangle(e.Bounds.Right - 34, e.Bounds.Y + 13, 26, 26);
+            var badge = new Rectangle(e.Bounds.Right - 32, e.Bounds.Y + 41, 22, 22);
             using var green = new SolidBrush(Accent);
             e.Graphics.FillEllipse(green, badge);
             TextRenderer.DrawText(e.Graphics, chat.Unread > 99 ? "99+" : chat.Unread.ToString(),
-                BodyFont, badge, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+                Font, badge, Canvas, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
-        e.DrawFocusRectangle();
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -346,8 +388,18 @@ internal sealed class ChatForm : Form
         login.Visible = !connected;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
+        chatsNav.Enabled = connected;
         composer.Enabled = connected && selected.Online;
         send.Enabled = connected && selected.Online && !sending && !string.IsNullOrWhiteSpace(composer.Text);
+    }
+
+    protected override void OnClientSizeChanged(EventArgs e)
+    {
+        base.OnClientSizeChanged(e);
+        if (membersDrawer is not null && ClientSize.Width < 850)
+        {
+            membersDrawer.Visible = false;
+        }
     }
 
     private Control BuildLayout()
@@ -357,22 +409,44 @@ internal sealed class ChatForm : Form
         StyleButton(disconnect, primary: false);
         StyleButton(membersToggle, primary: false);
         membersToggle.Font = TitleFont;
-        membersToggle.BackColor = Color.White;
+        membersToggle.BackColor = ChatTheme.Surface;
         membersToggle.Padding = Padding.Empty;
         membersToggle.AccessibleName = "General, show chats";
         membersToggle.Anchor = AnchorStyles.Left;
         StyleButton(closeMembers, primary: false);
         closeMembers.Padding = Padding.Empty;
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 3 };
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 64));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        var rail = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 4, ColumnCount = 1,
+            BackColor = ChatTheme.Surface, Padding = new Padding(8, 12, 8, 12), Margin = Padding.Empty };
+        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        rail.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        int navIndex = 0;
+        foreach (Button button in new[] { chatsNav, accountNav, settingsNav })
+        {
+            StyleButton(button, primary: false);
+            button.Font = new Font("Segoe MDL2 Assets", 16);
+            button.Padding = Padding.Empty;
+            button.Dock = DockStyle.Fill;
+            tips.SetToolTip(button, button.AccessibleName);
+            rail.Controls.Add(button, 0, navIndex == 2 ? 3 : navIndex);
+            navIndex++;
+        }
+
+        var right = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1, Margin = Padding.Empty };
+        right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
+        right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 76));
 
         var header = new TableLayoutPanel
         {
             Dock = DockStyle.Fill, ColumnCount = 4, Margin = Padding.Empty,
-            Padding = new Padding(18, 8, 16, 8), BackColor = Color.White
+            Padding = new Padding(18, 8, 16, 8), BackColor = ChatTheme.Surface
         };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -393,46 +467,81 @@ internal sealed class ChatForm : Form
         login = BuildLogin();
         body.Controls.Add(messages);
         BuildMembersDrawer();
-        body.Controls.Add(membersDrawer);
+
         body.Controls.Add(login);
 
         var bar = new TableLayoutPanel
         {
             Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = true, Margin = Padding.Empty,
-            Padding = new Padding(14, 9, 14, 9), BackColor = Color.White
+            Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface
         };
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         composer.Margin = new Padding(0, 5, 10, 0);
         composer.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        bar.Controls.Add(composer, 0, 0);
+        var inputShell = new RoundedPanel { Dock = DockStyle.Fill, Padding = new Padding(14, 10, 14, 9),
+            MinimumSize = new Size(100, 46), Size = new Size(100, 46), BackColor = ChatTheme.Raised, Margin = new Padding(0, 0, 10, 0) };
+        composer.BorderStyle = BorderStyle.None;
+        composer.Margin = Padding.Empty;
+        inputShell.Controls.Add(composer);
+        bar.Controls.Add(inputShell, 0, 0);
         bar.Controls.Add(send, 1, 0);
         composerBar = bar;
-        layout.Controls.Add(header, 0, 0);
-        layout.Controls.Add(body, 0, 1);
-        layout.Controls.Add(bar, 0, 2);
+        right.Controls.Add(header, 0, 0);
+        right.Controls.Add(body, 0, 1);
+        right.Controls.Add(bar, 0, 2);
+        var main = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
+        main.Controls.Add(right);
+        main.Controls.Add(membersDrawer);
+        layout.Controls.Add(rail, 0, 0);
+        layout.Controls.Add(main, 1, 0);
+        StyleInput(composer);
+        composer.BorderStyle = BorderStyle.None;
+        StyleInput(user);
+        StyleInput(host);
+        port.BackColor = ChatTheme.Raised;
+        port.ForeColor = Ink;
         return layout;
+    }
+
+    private static void StyleInput(TextBox input)
+    {
+        input.BackColor = ChatTheme.Raised;
+        input.ForeColor = Ink;
+        input.BorderStyle = BorderStyle.FixedSingle;
     }
 
     private void BuildMembersDrawer()
     {
         var layout = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 3, Padding = new Padding(12)
+            Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 4, Padding = new Padding(14, 14, 14, 0)
         };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
         layout.Controls.Add(closeMembers, 1, 0);
-        layout.Controls.Add(memberCount, 0, 1);
+        StyleInput(search);
+        search.Margin = new Padding(0, 8, 0, 8);
+        layout.Controls.Add(search, 0, 1);
+        layout.SetColumnSpan(search, 2);
+        layout.Controls.Add(memberCount, 0, 2);
         layout.SetColumnSpan(memberCount, 2);
-        memberList.Margin = new Padding(3, 9, 3, 0);
-        layout.Controls.Add(memberList, 0, 2);
+        memberList.Margin = new Padding(0, 8, 0, 0);
+        layout.Controls.Add(memberList, 0, 3);
         layout.SetColumnSpan(memberList, 2);
+        chatsContent = layout;
+        var settings = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
+            Padding = new Padding(18), Visible = false };
+        settings.Controls.Add(new Label { Text = "Settings", Font = TitleFont, AutoSize = true });
+        settings.Controls.Add(accountSummary);
+        settingsContent = settings;
         membersDrawer.Controls.Add(layout);
+        membersDrawer.Controls.Add(settings);
         membersDrawer.Visible = false;
     }
 
@@ -444,7 +553,7 @@ internal sealed class ChatForm : Form
         var card = new TableLayoutPanel
         {
             AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Anchor = AnchorStyles.None,
-            Padding = new Padding(20), ColumnCount = 2, BackColor = Color.White
+            Padding = new Padding(20), ColumnCount = 2, BackColor = ChatTheme.Surface
         };
         card.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
         card.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 98));
@@ -489,7 +598,8 @@ internal sealed class ChatForm : Form
         button.FlatAppearance.BorderSize = 0;
         button.Font = ActionFont;
         button.Padding = new Padding(12, 4, 12, 4);
-        button.BackColor = primary ? Accent : Color.FromArgb(234, 244, 239);
-        button.ForeColor = primary ? Color.White : Ink;
+        button.BackColor = primary ? Accent : ChatTheme.Surface;
+        button.ForeColor = primary ? Canvas : Ink;
+        button.FlatAppearance.MouseOverBackColor = primary ? Color.FromArgb(52, 225, 119) : ChatTheme.Raised;
     }
 }
