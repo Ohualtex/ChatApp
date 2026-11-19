@@ -23,7 +23,7 @@ internal static class ChatTheme
     private static extern int DwmSetWindowAttribute(nint handle, int attribute, ref int value, int size);
 }
 
-internal sealed class RoundedPanel : Panel
+internal class RoundedPanel : Panel
 {
     public RoundedPanel()
     {

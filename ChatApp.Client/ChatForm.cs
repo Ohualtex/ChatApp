@@ -46,7 +46,11 @@ internal sealed class ChatForm : Form
     private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, PlaceholderText = "Type a message" };
     private readonly Button attach = new() { Text = "+", AccessibleName = "Attach a file", AutoSize = true };
     private readonly Button voice = new() { Text = "\uE720", AccessibleName = "Record a voice message" };
-    private VoiceMessageDialog? voiceDialog;
+    private readonly VoiceRecordingBar recordingBar = new();
+    private Conversation? recordingDestination;
+    private ChatConnection? recordingConnection;
+    private Control normalComposerBar = null!;
+    private Control voiceComposerHost = null!;
     private readonly Button send = new() { Text = "Send", AutoSize = true };
     private readonly CancellationTokenSource closing = new();
     private ChatConnection? connection;
@@ -98,7 +102,9 @@ internal sealed class ChatForm : Form
         closeMembers.Click += (_, _) => SetMembersDrawer(false);
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         attach.Click += async (_, _) => await PickAttachmentAsync();
-        voice.Click += async (_, _) => await RecordVoiceAsync();
+        voice.Click += (_, _) => StartVoiceRecording();
+        recordingBar.Changed += () => { if (!IsDisposed) RefreshControls(); };
+        recordingBar.SendRequested += SendVoiceRecordingAsync;
         send.Click += async (_, _) => await SendAsync();
         composer.KeyDown += async (_, e) =>
         {
@@ -111,7 +117,7 @@ internal sealed class ChatForm : Form
         composer.TextChanged += (_, _) => RefreshControls();
         FormClosed += (_, _) =>
         {
-            voiceDialog?.Close();
+            recordingBar.Cancel();
             ClearVoiceHistory();
             closing.Cancel();
             connection?.Dispose();
@@ -238,21 +244,40 @@ internal sealed class ChatForm : Form
         }
     }
 
-    private async Task RecordVoiceAsync()
+    private void StartVoiceRecording()
     {
-        if (connection is not { } current || connecting || sending || !selected.Online) return;
-        Conversation destination = selected;
-        using var dialog = new VoiceMessageDialog(destination.Title);
-        voiceDialog = dialog;
+        if (connection is null || connecting || sending || !selected.Online || recordingBar.Active) return;
+        recordingDestination = selected;
+        recordingConnection = connection;
+        recordingBar.Start();
+    }
+
+    private async Task<bool> SendVoiceRecordingAsync(VoiceClip clip)
+    {
+        if (connection is not { } current || !ReferenceEquals(current, recordingConnection)
+            || recordingDestination is not { Online: true } destination || sending)
+        {
+            messages.AddNotice("The recording could not be sent because the conversation is offline.");
+            return false;
+        }
+        sending = true;
+        RefreshControls();
+        CancellationToken token = closing.Token;
         try
         {
-            if (dialog.ShowDialog(this) == DialogResult.OK && dialog.Attachment is { } attachment)
-            {
-                if (ReferenceEquals(connection, current) && destination.Online)
-                    await SendAttachmentAsync(attachment, destination);
-            }
+            await current.SendVoiceAsync(clip, destination.Peer, token);
+            return true;
         }
-        finally { voiceDialog = null; }
+        catch (Exception error) when (error is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+        {
+            if (!token.IsCancellationRequested && ReferenceEquals(connection, current)) Disconnect(error.Message);
+            return false;
+        }
+        finally
+        {
+            sending = false;
+            if (!IsDisposed && !token.IsCancellationRequested) RefreshControls();
+        }
     }
 
     private void ClearVoiceHistory()
@@ -316,7 +341,7 @@ internal sealed class ChatForm : Form
         connection = null;
         connecting = false;
         previous?.Dispose();
-        voiceDialog?.Close();
+        recordingBar.Cancel();
         SetMembersDrawer(false);
         UpdateMembers([], "");
         loginStatus.Text = message;
@@ -368,6 +393,11 @@ internal sealed class ChatForm : Form
 
     private void SelectConversation(Conversation chat)
     {
+        if (recordingBar.Active && !ReferenceEquals(chat, selected))
+        {
+            RefreshConversationList();
+            return;
+        }
         selected.Draft = composer.Text;
         selected = chat;
         selected.Unread = 0;
@@ -479,8 +509,12 @@ internal sealed class ChatForm : Form
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
         chatsNav.Enabled = connected;
+        if (normalComposerBar is not null) normalComposerBar.Visible = !recordingBar.Active;
+        if (voiceComposerHost is not null) voiceComposerHost.Visible = recordingBar.Active;
+        memberList.Enabled = !recordingBar.Active;
+        composer.Enabled = connected && selected.Online && !recordingBar.Active;
         attach.Enabled = voice.Enabled = connected && selected.Online && !sending;
-        composer.Enabled = connected && selected.Online;
+
         send.Enabled = connected && selected.Online && !sending && !string.IsNullOrWhiteSpace(composer.Text);
     }
 
@@ -619,10 +653,17 @@ internal sealed class ChatForm : Form
         voice.Margin = new Padding(0, 0, 4, 0);
         bar.Controls.Add(voice, 2, 0);
         bar.Controls.Add(send, 3, 0);
-        composerBar = bar;
+        normalComposerBar = bar;
+        var footer = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = ChatTheme.Surface };
+        footer.Controls.Add(bar);
+        var recordingHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14, 9, 14, 9), Visible = false };
+        recordingHost.Controls.Add(recordingBar);
+        voiceComposerHost = recordingHost;
+        footer.Controls.Add(recordingHost);
+        composerBar = footer;
         right.Controls.Add(header, 0, 0);
         right.Controls.Add(body, 0, 1);
-        right.Controls.Add(bar, 0, 2);
+        right.Controls.Add(footer, 0, 2);
         var main = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         chatArea = main;
         chatContent = right;
