@@ -22,12 +22,12 @@ internal sealed class ChatForm : Form
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
     private readonly Button membersToggle = new() { Text = "General", AutoSize = true };
-    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 205, BackColor = Color.White };
+    private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 240, BackColor = Color.White };
     private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
     private readonly ListBox memberList = new()
     {
         Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false,
-        AccessibleName = "Online members"
+        AccessibleName = "Conversations", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 64
     };
     private readonly Button closeMembers = new() { Text = "×", AccessibleName = "Close members", Size = new Size(36, 36) };
     private readonly Button disconnect = new() { Text = "Disconnect", AutoSize = true };
@@ -41,13 +41,17 @@ internal sealed class ChatForm : Form
     private ChatConnection? connection;
     private bool connecting;
     private bool sending;
+    private string joinedName = "";
+    private readonly Dictionary<string, Conversation> conversations = new(StringComparer.Ordinal);
+    private Conversation selected = new(null);
+    private bool refreshingChats;
 
     public ChatForm()
     {
         Text = "ChatApp";
         Icon = WindowIcon;
         MinimumSize = new Size(590, 385);
-        ClientSize = new Size(780, 570);
+        ClientSize = new Size(900, 600);
         StartPosition = FormStartPosition.CenterScreen;
         Font = BodyFont;
         ForeColor = Ink;
@@ -55,6 +59,14 @@ internal sealed class ChatForm : Form
         Controls.Add(BuildLayout());
         connect.Click += async (_, _) => await ConnectAndListenAsync();
         membersToggle.Click += (_, _) => SetMembersDrawer(!membersDrawer.Visible);
+        memberList.DrawItem += DrawConversation;
+        memberList.SelectedIndexChanged += (_, _) =>
+        {
+            if (!refreshingChats && memberList.SelectedItem is Conversation chat)
+            {
+                SelectConversation(chat);
+            }
+        };
         closeMembers.Click += (_, _) => SetMembersDrawer(false);
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         send.Click += async (_, _) => await SendAsync();
@@ -101,17 +113,24 @@ internal sealed class ChatForm : Form
         {
             using var handshake = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             handshake.CancelAfter(TimeSpan.FromSeconds(6));
-            string joinedName = await next.ConnectAsync(address, (int)port.Value, name, handshake.Token);
+            joinedName = await next.ConnectAsync(address, (int)port.Value, name, handshake.Token);
+            conversations.Clear();
+            selected = new Conversation(null);
+            conversations.Add("", selected);
+            membersToggle.Text = selected.Title;
             messages.ClearMessages();
+            composer.Clear();
+            RefreshConversationList();
             loginStatus.Text = "";
             connecting = false;
             RefreshControls();
+            SetMembersDrawer(true);
             composer.Focus();
             while (await next.ReadAsync(lifetime) is { } packet && ReferenceEquals(connection, next) && !lifetime.IsCancellationRequested)
             {
                 if (packet.Type == "chat")
                 {
-                    messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, packet.Name == joinedName);
+                    ReceiveMessage(packet);
                 }
                 else if (packet is { Type: "presence", Users: { } users })
                 {
@@ -144,14 +163,20 @@ internal sealed class ChatForm : Form
             return;
         }
 
+        if (!selected.Online)
+        {
+            return;
+        }
+
+        Conversation destination = selected;
         string text = composer.Text;
         sending = true;
         RefreshControls();
         CancellationToken lifetime = closing.Token;
         try
         {
-            await current.SendAsync(new ChatPacket("chat", Message: text.Trim()), lifetime);
-            if (ReferenceEquals(connection, current) && composer.Text == text)
+            await current.SendAsync(new ChatPacket("chat", Message: text.Trim(), Recipient: destination.Peer), lifetime);
+            if (ReferenceEquals(connection, current) && ReferenceEquals(selected, destination) && composer.Text == text)
             {
                 composer.Clear();
             }
@@ -185,19 +210,109 @@ internal sealed class ChatForm : Form
         RefreshControls();
     }
 
-    private void UpdateMembers(string[] names, string joinedName)
+    private void UpdateMembers(string[] names, string currentName)
     {
+        foreach (Conversation chat in conversations.Values)
+        {
+            chat.Online = chat.Peer is null || names.Contains(chat.Peer, StringComparer.Ordinal);
+        }
+        foreach (string name in names.Where(name => name != currentName))
+        {
+            GetConversation(name).Online = true;
+        }
+        memberCount.Text = $"{names.Length} online";
+        RefreshConversationList();
+        RefreshControls();
+    }
+
+    private Conversation GetConversation(string? peer)
+    {
+        string key = peer ?? "";
+        if (!conversations.TryGetValue(key, out Conversation? chat))
+        {
+            chat = new Conversation(peer);
+            conversations.Add(key, chat);
+        }
+        return chat;
+    }
+
+    private void ReceiveMessage(ChatPacket packet)
+    {
+        bool outgoing = packet.Name == joinedName;
+        string? peer = packet.Recipient is null ? null : outgoing ? packet.Recipient : packet.Name;
+        Conversation chat = GetConversation(peer);
+        chat.Messages.Add(packet);
+        if (ReferenceEquals(chat, selected))
+        {
+            messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, outgoing);
+        }
+        else if (!outgoing)
+        {
+            chat.Unread++;
+        }
+        RefreshConversationList();
+    }
+
+    private void SelectConversation(Conversation chat)
+    {
+        selected.Draft = composer.Text;
+        selected = chat;
+        selected.Unread = 0;
+        membersToggle.Text = selected.Title;
+        composer.Text = selected.Draft;
+        messages.ClearMessages();
+        foreach (ChatPacket packet in selected.Messages)
+        {
+            messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, packet.Name == joinedName);
+        }
+        RefreshConversationList();
+        RefreshControls();
+    }
+
+    private void RefreshConversationList()
+    {
+        refreshingChats = true;
         memberList.BeginUpdate();
         try
         {
             memberList.Items.Clear();
-            memberList.Items.AddRange(names.Select(name => name == joinedName ? $"{name} (you)" : name).ToArray());
-            memberCount.Text = $"{names.Length} online";
+            foreach (Conversation chat in conversations.Values.OrderBy(chat => chat.Peer is not null)
+                .ThenBy(chat => chat.Title, StringComparer.OrdinalIgnoreCase))
+            {
+                memberList.Items.Add(chat);
+            }
+            memberList.SelectedItem = selected;
         }
         finally
         {
             memberList.EndUpdate();
+            refreshingChats = false;
         }
+    }
+
+    private void DrawConversation(object? sender, DrawItemEventArgs e)
+    {
+        if (e.Index < 0) return;
+        var chat = (Conversation)memberList.Items[e.Index];
+        bool active = ReferenceEquals(chat, selected);
+        using var fill = new SolidBrush(active ? Color.FromArgb(217, 244, 229) : Color.White);
+        e.Graphics.FillRectangle(fill, e.Bounds);
+        int badgeSpace = chat.Unread > 0 ? 36 : 0;
+        var title = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 8, e.Bounds.Width - 20 - badgeSpace, 24);
+        var preview = new Rectangle(title.X, e.Bounds.Y + 34, title.Width, 21);
+        TextRenderer.DrawText(e.Graphics, chat.Title, ActionFont, title, Ink,
+            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        TextRenderer.DrawText(e.Graphics, chat.Preview, BodyFont, preview, Muted,
+            TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        if (chat.Unread > 0)
+        {
+            var badge = new Rectangle(e.Bounds.Right - 34, e.Bounds.Y + 13, 26, 26);
+            using var green = new SolidBrush(Accent);
+            e.Graphics.FillEllipse(green, badge);
+            TextRenderer.DrawText(e.Graphics, chat.Unread > 99 ? "99+" : chat.Unread.ToString(),
+                BodyFont, badge, Color.White, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+        }
+        e.DrawFocusRectangle();
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
@@ -214,7 +329,7 @@ internal sealed class ChatForm : Form
     private void SetMembersDrawer(bool open)
     {
         membersDrawer.Visible = open;
-        membersToggle.AccessibleName = open ? "General, hide online members" : "General, show online members";
+        membersToggle.AccessibleName = open ? $"{selected.Title}, hide chats" : $"{selected.Title}, show chats";
         if (!open && membersToggle.Enabled)
         {
             membersToggle.Focus();
@@ -226,13 +341,13 @@ internal sealed class ChatForm : Form
         bool offline = connection is null && !connecting;
         bool connected = connection is not null && !connecting;
         user.Enabled = host.Enabled = port.Enabled = connect.Enabled = offline;
-        status.Text = connected ? "Online" : connecting ? "Connecting…" : "Offline";
-        status.ForeColor = connected ? Accent : Muted;
+        status.Text = connected ? selected.Online ? "Online" : "Offline" : connecting ? "Connecting…" : "Offline";
+        status.ForeColor = connected && selected.Online ? Accent : Muted;
         login.Visible = !connected;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
-        composer.Enabled = connected;
-        send.Enabled = connected && !sending && !string.IsNullOrWhiteSpace(composer.Text);
+        composer.Enabled = connected && selected.Online;
+        send.Enabled = connected && selected.Online && !sending && !string.IsNullOrWhiteSpace(composer.Text);
     }
 
     private Control BuildLayout()
@@ -244,7 +359,7 @@ internal sealed class ChatForm : Form
         membersToggle.Font = TitleFont;
         membersToggle.BackColor = Color.White;
         membersToggle.Padding = Padding.Empty;
-        membersToggle.AccessibleName = "General, show online members";
+        membersToggle.AccessibleName = "General, show chats";
         membersToggle.Anchor = AnchorStyles.Left;
         StyleButton(closeMembers, primary: false);
         closeMembers.Padding = Padding.Empty;
@@ -310,7 +425,7 @@ internal sealed class ChatForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(new Label { Text = "Members", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
+        layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
         layout.Controls.Add(closeMembers, 1, 0);
         layout.Controls.Add(memberCount, 0, 1);
         layout.SetColumnSpan(memberCount, 2);
