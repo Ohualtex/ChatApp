@@ -155,6 +155,39 @@ defmodule ChatApp.Connection do
 
         receive_messages(socket)
 
+      {:ok, %{"type" => "voice_start", "voice" => %{"id" => id, "length" => length}} = packet}
+      when is_binary(id) and byte_size(id) in 1..64 and is_integer(length) and
+             length in 44..4_294_967_303 ->
+        recipient =
+          case Map.get(packet, "recipient") do
+            :null -> nil
+            value -> value
+          end
+
+        if is_nil(recipient) or (is_binary(recipient) and byte_size(recipient) <= 96) do
+          ChatApp.Room.voice_start(id, length, recipient)
+        end
+
+        receive_messages(socket)
+
+      {:ok, %{"type" => "voice_chunk", "voice" => %{"id" => id, "data" => data}}}
+      when is_binary(id) and byte_size(id) in 1..64 and is_binary(data) and
+             byte_size(data) <= 87_384 ->
+        case Base.decode64(data) do
+          {:ok, bytes} when byte_size(bytes) in 1..65_536 ->
+            ChatApp.Room.voice_part(id, data, byte_size(bytes))
+
+          _ ->
+            send_packet(socket, %{type: "error", message: "Invalid audio chunk."})
+        end
+
+        receive_messages(socket)
+
+      {:ok, %{"type" => "voice_end", "voice" => %{"id" => id}}}
+      when is_binary(id) and byte_size(id) in 1..64 ->
+        ChatApp.Room.voice_part(id, nil, 0)
+        receive_messages(socket)
+
       {:ok, _packet} ->
         send_packet(socket, %{type: "error", message: "Unsupported message."})
         receive_messages(socket)
@@ -200,6 +233,12 @@ defmodule ChatApp.Room do
 
   def publish(content, recipient),
     do: GenServer.call(__MODULE__, {:chat, content, recipient}, 60_000)
+
+  def voice_start(id, length, recipient),
+    do: GenServer.call(__MODULE__, {:voice_start, id, length, recipient}, 60_000)
+
+  def voice_part(id, data, count),
+    do: GenServer.call(__MODULE__, {:voice_part, id, data, count}, 60_000)
 
   @impl true
   def init(members), do: {:ok, members}
@@ -267,6 +306,94 @@ defmodule ChatApp.Room do
     {:reply, :ok, members}
   end
 
+  @impl true
+  def handle_call({:voice_start, id, length, recipient}, {pid, _tag}, members) do
+    case Map.fetch(members, pid) do
+      {:ok, sender} ->
+        target = Enum.find(members, fn {_pid, member} -> member.name == recipient end)
+
+        if is_nil(recipient) or target != nil do
+          abort_voice(Map.get(sender, :upload), members)
+
+          recipients =
+            if is_nil(recipient), do: Map.keys(members), else: Enum.uniq([pid, elem(target, 0)])
+
+          header =
+            chat_packet(
+              sender.name,
+              %{type: "voice_start", voice: %{id: id, length: length}},
+              recipient
+            )
+
+          upload = %{id: id, length: length, received: 0, recipients: recipients, header: header}
+          send_voice(upload, header, members)
+          {:reply, :ok, Map.put(members, pid, Map.put(sender, :upload, upload))}
+        else
+          ChatApp.Connection.send_packet(sender.socket, %{
+            type: "error",
+            message: "The recipient is offline."
+          })
+
+          {:reply, :ok, members}
+        end
+
+      :error ->
+        {:reply, :ok, members}
+    end
+  end
+
+  @impl true
+  def handle_call({:voice_part, id, data, count}, {pid, _tag}, members) do
+    case Map.get(members, pid) do
+      %{upload: %{id: ^id} = upload} = sender ->
+        complete = is_nil(data)
+
+        valid =
+          if complete,
+            do: upload.received == upload.length,
+            else: upload.received + count <= upload.length
+
+        if valid do
+          type = if complete, do: "voice_end", else: "voice_chunk"
+          voice = if complete, do: %{id: id}, else: %{id: id, data: data}
+          send_voice(upload, Map.merge(upload.header, %{type: type, voice: voice}), members)
+          next = if complete, do: nil, else: %{upload | received: upload.received + count}
+          {:reply, :ok, Map.put(members, pid, %{sender | upload: next})}
+        else
+          abort_voice(upload, members)
+
+          ChatApp.Connection.send_packet(sender.socket, %{
+            type: "error",
+            message: "The voice message is incomplete."
+          })
+
+          {:reply, :ok, Map.put(members, pid, %{sender | upload: nil})}
+        end
+
+      _ ->
+        {:reply, :ok, members}
+    end
+  end
+
+  defp send_voice(upload, packet, members) do
+    Enum.each(upload.recipients, fn pid ->
+      case Map.get(members, pid) do
+        nil -> :ok
+        member -> ChatApp.Connection.send_packet(member.socket, packet)
+      end
+    end)
+  end
+
+  defp abort_voice(nil, _members), do: :ok
+
+  defp abort_voice(upload, members),
+    do:
+      send_voice(
+        upload,
+        Map.merge(upload.header, %{type: "voice_abort", voice: %{id: upload.id}}),
+        members
+      )
+
   defp chat_packet(sender, content, recipient) do
     Map.merge(content, %{
       name: sender,
@@ -279,6 +406,7 @@ defmodule ChatApp.Room do
   def handle_info({:DOWN, monitor, :process, pid, _reason}, members) do
     case Map.fetch(members, pid) do
       {:ok, %{monitor: ^monitor, name: name}} ->
+        abort_voice(Map.get(Map.fetch!(members, pid), :upload), members)
         updated = Map.delete(members, pid)
         publish_members("Left: #{name}", updated)
         {:noreply, updated}
