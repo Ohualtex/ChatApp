@@ -64,7 +64,7 @@ internal sealed class MessageFeed : Panel
     {
         string time = packet.Timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
         AddRow(new MessageRow(outgoing ? null : packet.Name, packet.Message ?? "", time, outgoing,
-            attachment: packet.Attachment));
+            attachment: packet.Attachment, recording: packet.Recording));
     }
 
     public void AddNotice(string text) => AddRow(new MessageRow(null, text, "", outgoing: false, notice: true));
@@ -125,7 +125,7 @@ internal sealed class MessageFeed : Panel
         private readonly bool outgoing;
         private readonly bool notice;
 
-        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null)
+        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null, VoiceClip? recording = null)
         {
             this.outgoing = outgoing;
             this.notice = notice;
@@ -212,6 +212,43 @@ internal sealed class MessageFeed : Panel
                     };
                     bubble.Controls.Add(save);
                 }
+            }
+
+            if (recording is not null)
+            {
+                message = "Voice message  " + WaveAudio.FormatTime(recording.Duration);
+                playback = new VoicePlayback();
+                play = new Button { Text = "Play", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                    BackColor = ChatTheme.Surface, ForeColor = Ink };
+                playback.Changed += () => play.Text = playback.Playing ? "Stop" : "Play";
+                play.Click += (_, _) =>
+                {
+                    if (playback.Playing) { playback.Stop(); return; }
+                    try { playback.Play(recording); }
+                    catch (Exception error) when (error is IOException or InvalidOperationException)
+                    {
+                        MessageBox.Show(FindForm(), error.Message, "Could not play recording", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                    }
+                };
+                save = new Button { Text = "Save...", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                    BackColor = ChatTheme.Surface, ForeColor = Ink };
+                save.Click += async (_, _) =>
+                {
+                    using var dialog = new SaveFileDialog { FileName = recording.FileName,
+                        Filter = "WAV audio (*.wav)|*.wav", Title = "Save voice message" };
+                    if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+                    save.Enabled = false;
+                    try
+                    {
+                        await using var source = File.OpenRead(recording.Path);
+                        await using var destination = new FileStream(dialog.FileName, FileMode.Create, FileAccess.Write, FileShare.None, 65536, true);
+                        await source.CopyToAsync(destination);
+                    }
+                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                    { MessageBox.Show(FindForm(), error.Message, "Could not save recording", MessageBoxButtons.OK, MessageBoxIcon.Error); }
+                    finally { if (!save.IsDisposed) save.Enabled = true; }
+                };
+                bubble.Controls.AddRange([play, save]);
             }
 
             messageLabel = CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
