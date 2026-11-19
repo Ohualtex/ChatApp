@@ -9,47 +9,48 @@ internal static class WaveAudio
 {
     public static TimeSpan Duration(byte[] bytes)
     {
-        ReadOnlySpan<byte> wave = bytes;
-        if (wave.Length < 12 || !wave[..4].SequenceEqual("RIFF"u8) || !wave.Slice(8, 4).SequenceEqual("WAVE"u8))
-            throw new IOException("This file is not a supported PCM WAV recording.");
-        uint riffSize = BinaryPrimitives.ReadUInt32LittleEndian(wave.Slice(4, 4));
-        if (riffSize != wave.Length - 8) throw new IOException("The recording is incomplete.");
+        using var stream = new MemoryStream(bytes, writable: false);
+        return Duration(stream);
+    }
+
+    public static TimeSpan Duration(Stream stream)
+    {
+        using var reader = new BinaryReader(stream, Encoding.ASCII, leaveOpen: true);
+        stream.Position = 0;
+        if (stream.Length < 12 || reader.ReadUInt32() != 0x46464952)
+            throw new IOException("This file is not a PCM WAV recording.");
+        uint riffSize = reader.ReadUInt32();
+        if (riffSize != stream.Length - 8 || reader.ReadUInt32() != 0x45564157)
+            throw new IOException("The recording is incomplete.");
         uint rate = 0, dataSize = 0;
-        bool formatFound = false, dataFound = false;
-        ushort blockAlignment = 0;
-        for (int offset = 12; offset + 8 <= wave.Length;)
+        ushort alignment = 0;
+        while (stream.Position + 8 <= stream.Length)
         {
-            ReadOnlySpan<byte> id = wave.Slice(offset, 4);
-            uint size = BinaryPrimitives.ReadUInt32LittleEndian(wave.Slice(offset + 4, 4));
-            offset += 8;
-            if (size > wave.Length - offset) throw new IOException("The recording is incomplete.");
-            if (id.SequenceEqual("fmt "u8))
+            uint id = reader.ReadUInt32(), size = reader.ReadUInt32();
+            long next = stream.Position + size + (size & 1);
+            if (next > stream.Length) throw new IOException("The recording is incomplete.");
+            if (id == 0x20746D66)
             {
-                if (size < 16) throw new IOException("The recording has an invalid audio format.");
-                ReadOnlySpan<byte> format = wave.Slice(offset, 16);
-                ushort encoding = BinaryPrimitives.ReadUInt16LittleEndian(format);
-                ushort channels = BinaryPrimitives.ReadUInt16LittleEndian(format[2..]);
-                uint samples = BinaryPrimitives.ReadUInt32LittleEndian(format[4..]);
-                rate = BinaryPrimitives.ReadUInt32LittleEndian(format[8..]);
-                ushort alignment = BinaryPrimitives.ReadUInt16LittleEndian(format[12..]);
-                ushort bits = BinaryPrimitives.ReadUInt16LittleEndian(format[14..]);
+                if (size < 16) throw new IOException("The audio format is invalid.");
+                ushort encoding = reader.ReadUInt16(), channels = reader.ReadUInt16();
+                uint samples = reader.ReadUInt32();
+                rate = reader.ReadUInt32(); alignment = reader.ReadUInt16();
+                ushort bits = reader.ReadUInt16();
                 if (encoding != 1 || channels is < 1 or > 2 || samples is < 8000 or > 96000
                     || bits is not (8 or 16) || alignment != channels * bits / 8 || rate != samples * alignment)
                     throw new IOException("Only mono or stereo PCM WAV audio is supported.");
-                blockAlignment = alignment;
-                formatFound = true;
             }
-            else if (id.SequenceEqual("data"u8))
-            {
-                dataSize = size;
-                dataFound = true;
-            }
-            offset += checked((int)size + ((int)size & 1));
+            else if (id == 0x61746164) dataSize = size;
+            stream.Position = next;
         }
-        if (!formatFound || !dataFound || dataSize == 0 || rate == 0 || dataSize % blockAlignment != 0)
+        if (rate == 0 || alignment == 0 || dataSize == 0 || dataSize % alignment != 0)
             throw new IOException("The recording contains no playable audio.");
         return TimeSpan.FromSeconds((double)dataSize / rate);
     }
+
+    public static string FormatTime(TimeSpan time) => time.TotalHours >= 1
+        ? $"{(int)time.TotalHours}:{time.Minutes:00}:{time.Seconds:00}"
+        : $"{(int)time.TotalMinutes}:{time.Seconds:00}";
 }
 
 internal sealed class VoicePlayback : IDisposable
