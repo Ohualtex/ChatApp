@@ -113,11 +113,18 @@ defmodule ChatApp.Connection do
 
   defp receive_messages(socket) do
     case read(socket, :infinity) do
-      {:ok, %{"type" => "chat", "message" => message}} when is_binary(message) ->
+      {:ok, %{"type" => "chat", "message" => message} = packet} when is_binary(message) ->
+        recipient =
+          case Map.get(packet, "recipient") do
+            :null -> nil
+            value -> value
+          end
+
         message = String.trim(message)
 
-        if String.valid?(message) and String.length(message) in 1..1000 do
-          ChatApp.Room.publish(message)
+        if String.valid?(message) and String.length(message) in 1..1000 and
+             (is_nil(recipient) or (is_binary(recipient) and byte_size(recipient) <= 96)) do
+          ChatApp.Room.publish(message, recipient)
         else
           send_packet(socket, %{
             type: "error",
@@ -152,7 +159,7 @@ defmodule ChatApp.Room do
 
   def start_link(_options), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   def join(socket, name), do: GenServer.call(__MODULE__, {:join, socket, name})
-  def publish(message), do: GenServer.call(__MODULE__, {:chat, message})
+  def publish(message, recipient), do: GenServer.call(__MODULE__, {:chat, message, recipient})
 
   @impl true
   def init(members), do: {:ok, members}
@@ -178,25 +185,56 @@ defmodule ChatApp.Room do
   end
 
   @impl true
-  def handle_call({:chat, message}, {pid, _tag}, members) do
+  def handle_call({:chat, message, recipient}, {pid, _tag}, members) do
     case Map.fetch(members, pid) do
       {:ok, sender} ->
-        packet = %{
-          type: "chat",
-          name: sender.name,
-          message: message,
-          timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
-        }
+        target = Enum.find(members, fn {_pid, member} -> member.name == recipient end)
 
-        Enum.each(members, fn {_pid, member} ->
-          ChatApp.Connection.send_packet(member.socket, packet)
-        end)
+        cond do
+          is_nil(recipient) ->
+            packet = chat_packet(sender.name, message, nil)
+
+            Enum.each(members, fn {_pid, member} ->
+              ChatApp.Connection.send_packet(member.socket, packet)
+            end)
+
+          target != nil ->
+            {target_pid, receiver} = target
+            packet = chat_packet(sender.name, message, receiver.name)
+
+            case ChatApp.Connection.send_packet(receiver.socket, packet) do
+              :ok ->
+                if target_pid != pid, do: ChatApp.Connection.send_packet(sender.socket, packet)
+
+              {:error, _reason} ->
+                ChatApp.Connection.send_packet(sender.socket, %{
+                  type: "error",
+                  message: "The recipient is no longer connected."
+                })
+            end
+
+          true ->
+            ChatApp.Connection.send_packet(sender.socket, %{
+              type: "error",
+              message: "The recipient is offline."
+            })
+        end
 
       :error ->
         :ok
     end
 
     {:reply, :ok, members}
+  end
+
+  defp chat_packet(sender, message, recipient) do
+    %{
+      type: "chat",
+      name: sender,
+      message: message,
+      recipient: recipient || :null,
+      timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
+    }
   end
 
   @impl true

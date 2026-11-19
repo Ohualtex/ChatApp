@@ -5,7 +5,7 @@ using System.Text.Json;
 namespace ChatApp.Client;
 
 internal sealed record ChatPacket(string Type, string? Name = null, string? Message = null, DateTimeOffset? Timestamp = null,
-    string[]? Users = null);
+    string[]? Users = null, string? Recipient = null);
 
 internal sealed class ChatConnection : IDisposable
 {
