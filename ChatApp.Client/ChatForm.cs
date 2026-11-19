@@ -112,6 +112,7 @@ internal sealed class ChatForm : Form
         FormClosed += (_, _) =>
         {
             voiceDialog?.Close();
+            ClearVoiceHistory();
             closing.Cancel();
             connection?.Dispose();
             closing.Dispose();
@@ -146,6 +147,7 @@ internal sealed class ChatForm : Form
             using var handshake = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             handshake.CancelAfter(TimeSpan.FromSeconds(6));
             joinedName = await next.ConnectAsync(address, (int)port.Value, name, handshake.Token);
+            ClearVoiceHistory();
             conversations.Clear();
             selected = new Conversation(null);
             conversations.Add("", selected);
@@ -159,9 +161,14 @@ internal sealed class ChatForm : Form
             RefreshControls();
             SetMembersDrawer(true);
             composer.Focus();
-            while (await next.ReadAsync(lifetime) is { } packet && ReferenceEquals(connection, next) && !lifetime.IsCancellationRequested)
+            while (await next.ReadAsync(lifetime) is { } packet)
             {
-                if (packet.Type is "chat" or "file")
+                if (!ReferenceEquals(connection, next) || lifetime.IsCancellationRequested)
+                {
+                    packet.Recording?.Dispose();
+                    break;
+                }
+                if (packet.Type is "chat" or "file" or "voice")
                 {
                     ReceiveMessage(packet);
                 }
@@ -246,6 +253,13 @@ internal sealed class ChatForm : Form
             }
         }
         finally { voiceDialog = null; }
+    }
+
+    private void ClearVoiceHistory()
+    {
+        messages.ClearMessages();
+        foreach (Conversation chat in conversations.Values)
+            foreach (ChatPacket packet in chat.Messages) packet.Recording?.Dispose();
     }
 
     private async Task PickAttachmentAsync()

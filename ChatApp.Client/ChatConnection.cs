@@ -19,6 +19,7 @@ internal sealed class ChatConnection : IDisposable
     private StreamReader? reader;
     private StreamWriter? writer;
     private readonly SemaphoreSlim writeGate = new(1, 1);
+    private readonly Dictionary<(string, string), IncomingVoice> incoming = [];
 
     public async Task<string> ConnectAsync(string host, int port, string name, CancellationToken token)
     {
@@ -73,10 +74,101 @@ internal sealed class ChatConnection : IDisposable
     public async Task<ChatPacket?> ReadAsync(CancellationToken token)
     {
         StreamReader input = reader ?? throw new InvalidOperationException("Connect before reading messages.");
-        string? line = await input.ReadLineAsync(token);
-        return line is null ? null : JsonSerializer.Deserialize<ChatPacket>(line, Json)
-            ?? throw new IOException("The server sent an empty message.");
+        while (true)
+        {
+            string? line = await input.ReadLineAsync(token);
+            if (line is null) { ClearIncoming(); return null; }
+            ChatPacket packet = JsonSerializer.Deserialize<ChatPacket>(line, Json)
+                ?? throw new IOException("The server sent an empty message.");
+            if (packet.Type is not ("voice_start" or "voice_chunk" or "voice_end" or "voice_abort")) return packet;
+            if (packet.Voice is not { } voice || packet.Name is null) continue;
+            var key = (packet.Name, voice.Id);
+            try
+            {
+                if (packet.Type == "voice_abort")
+                {
+                    if (incoming.Remove(key, out IncomingVoice? abandoned)) abandoned.Dispose();
+                }
+                else if (packet.Type == "voice_start")
+                {
+                    // Each sender uploads one recording at a time; discard an abandoned prefix.
+                    foreach (var stale in incoming.Keys.Where(k => k.Item1 == packet.Name).ToArray())
+                    { incoming[stale].Dispose(); incoming.Remove(stale); }
+                    if (voice.Length is not >= 44 or > 4_294_967_303)
+                        throw new IOException("The recording length is invalid.");
+                    incoming[key] = new IncomingVoice(packet, voice.Length.Value);
+                }
+                else if (incoming.TryGetValue(key, out IncomingVoice? transfer))
+                {
+                    if (packet.Type == "voice_chunk") await transfer.AppendAsync(voice.Data, token);
+                    else
+                    {
+                        incoming.Remove(key);
+                        using (transfer)
+                        {
+                            VoiceClip clip = transfer.Complete();
+                            return transfer.Started with { Type = "voice", Voice = null, Recording = clip };
+                        }
+                    }
+                }
+            }
+            catch (Exception error) when (error is IOException or FormatException or UnauthorizedAccessException)
+            {
+                if (incoming.Remove(key, out IncomingVoice? failed)) failed.Dispose();
+                return new ChatPacket("error", Message: "Could not receive voice message: " + error.Message);
+            }
+        }
     }
 
-    public void Dispose() => tcp.Dispose();
+    private void ClearIncoming()
+    {
+        foreach (IncomingVoice transfer in incoming.Values) transfer.Dispose();
+        incoming.Clear();
+    }
+
+    public void Dispose()
+    {
+        tcp.Dispose();
+        ClearIncoming();
+    }
+
+    private sealed class IncomingVoice : IDisposable
+    {
+        private readonly string path = VoiceClip.NewPath();
+        private readonly FileStream file;
+        private readonly long expected;
+        private bool retained;
+        public ChatPacket Started { get; }
+
+        public IncomingVoice(ChatPacket started, long expected)
+        {
+            Started = started;
+            this.expected = expected;
+            file = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, true);
+        }
+
+        public async Task AppendAsync(string? data, CancellationToken token)
+        {
+            if (data is null || data.Length > 87384) throw new IOException("Invalid audio chunk.");
+            byte[] bytes = Convert.FromBase64String(data);
+            if (bytes.Length is 0 or > 65536 || file.Position + bytes.Length > expected)
+                throw new IOException("Invalid audio chunk length.");
+            await file.WriteAsync(bytes, token);
+        }
+
+        public VoiceClip Complete()
+        {
+            if (file.Position != expected) throw new IOException("The recording is incomplete.");
+            file.Dispose();
+            var clip = new VoiceClip(path);
+            retained = true;
+            return clip;
+        }
+
+        public void Dispose()
+        {
+            file.Dispose();
+            if (!retained) VoiceClip.DeleteTemporary(path);
+        }
+    }
 }
