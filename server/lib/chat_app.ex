@@ -32,9 +32,10 @@ defmodule ChatApp.Listener do
       ip: ip,
       active: false,
       packet: :line,
-      packet_size: 8192,
+      packet_size: 14_100_000,
+      buffer: 14_100_000,
       reuseaddr: true,
-      send_timeout: 1000,
+      send_timeout: 15_000,
       send_timeout_close: true
     ]
 
@@ -124,12 +125,32 @@ defmodule ChatApp.Connection do
 
         if String.valid?(message) and String.length(message) in 1..1000 and
              (is_nil(recipient) or (is_binary(recipient) and byte_size(recipient) <= 96)) do
-          ChatApp.Room.publish(message, recipient)
+          ChatApp.Room.publish(%{type: "chat", message: message}, recipient)
         else
           send_packet(socket, %{
             type: "error",
             message: "Messages must contain 1 to 1000 characters."
           })
+        end
+
+        receive_messages(socket)
+
+      {:ok, %{"type" => "file", "attachment" => attachment} = packet} ->
+        recipient =
+          case Map.get(packet, "recipient") do
+            :null -> nil
+            value -> value
+          end
+
+        case validate_attachment(attachment) do
+          {:ok, clean} when is_nil(recipient) or is_binary(recipient) ->
+            ChatApp.Room.publish(%{type: "file", attachment: clean}, recipient)
+
+          _error ->
+            send_packet(socket, %{
+              type: "error",
+              message: "Invalid attachment. Files must be at most 10 MB."
+            })
         end
 
         receive_messages(socket)
@@ -142,6 +163,23 @@ defmodule ChatApp.Connection do
         :ok
     end
   end
+
+  defp validate_attachment(%{"fileName" => name, "contentType" => content_type, "data" => data})
+       when is_binary(name) and byte_size(name) in 1..640 and is_binary(content_type) and
+              byte_size(content_type) in 1..100 and is_binary(data) and
+              byte_size(data) <= 13_981_016 do
+    with true <-
+           String.valid?(name) and not String.contains?(name, ["/", <<92>>]) and
+             Enum.all?(String.to_charlist(name), &(&1 >= 32)),
+         {:ok, bytes} <- Base.decode64(data),
+         true <- byte_size(bytes) in 1..10_485_760 do
+      {:ok, %{fileName: name, contentType: content_type, data: data}}
+    else
+      _ -> {:error, :invalid_attachment}
+    end
+  end
+
+  defp validate_attachment(_attachment), do: {:error, :invalid_attachment}
 
   defp read(socket, timeout) do
     with {:ok, line} <- :gen_tcp.recv(socket, 0, timeout) do
@@ -159,7 +197,9 @@ defmodule ChatApp.Room do
 
   def start_link(_options), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
   def join(socket, name), do: GenServer.call(__MODULE__, {:join, socket, name})
-  def publish(message, recipient), do: GenServer.call(__MODULE__, {:chat, message, recipient})
+
+  def publish(content, recipient),
+    do: GenServer.call(__MODULE__, {:chat, content, recipient}, 60_000)
 
   @impl true
   def init(members), do: {:ok, members}
@@ -185,14 +225,14 @@ defmodule ChatApp.Room do
   end
 
   @impl true
-  def handle_call({:chat, message, recipient}, {pid, _tag}, members) do
+  def handle_call({:chat, content, recipient}, {pid, _tag}, members) do
     case Map.fetch(members, pid) do
       {:ok, sender} ->
         target = Enum.find(members, fn {_pid, member} -> member.name == recipient end)
 
         cond do
           is_nil(recipient) ->
-            packet = chat_packet(sender.name, message, nil)
+            packet = chat_packet(sender.name, content, nil)
 
             Enum.each(members, fn {_pid, member} ->
               ChatApp.Connection.send_packet(member.socket, packet)
@@ -200,7 +240,7 @@ defmodule ChatApp.Room do
 
           target != nil ->
             {target_pid, receiver} = target
-            packet = chat_packet(sender.name, message, receiver.name)
+            packet = chat_packet(sender.name, content, receiver.name)
 
             case ChatApp.Connection.send_packet(receiver.socket, packet) do
               :ok ->
@@ -227,14 +267,12 @@ defmodule ChatApp.Room do
     {:reply, :ok, members}
   end
 
-  defp chat_packet(sender, message, recipient) do
-    %{
-      type: "chat",
+  defp chat_packet(sender, content, recipient) do
+    Map.merge(content, %{
       name: sender,
-      message: message,
       recipient: recipient || :null,
       timestamp: DateTime.utc_now() |> DateTime.to_iso8601()
-    }
+    })
   end
 
   @impl true

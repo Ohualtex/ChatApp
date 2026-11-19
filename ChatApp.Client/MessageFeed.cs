@@ -60,6 +60,13 @@ internal sealed class MessageFeed : Panel
         AddRow(new MessageRow(outgoing ? null : sender, text, time, outgoing));
     }
 
+    public void AddPacket(ChatPacket packet, bool outgoing)
+    {
+        string time = packet.Timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
+        AddRow(new MessageRow(outgoing ? null : packet.Name, packet.Message ?? "", time, outgoing,
+            attachment: packet.Attachment));
+    }
+
     public void AddNotice(string text) => AddRow(new MessageRow(null, text, "", outgoing: false, notice: true));
 
     private void AddRow(MessageRow row)
@@ -111,10 +118,12 @@ internal sealed class MessageFeed : Panel
         private readonly Label? senderLabel;
         private readonly Label messageLabel;
         private readonly Label timeLabel;
+        private readonly PictureBox? photo;
+        private readonly Button? save;
         private readonly bool outgoing;
         private readonly bool notice;
 
-        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false)
+        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null)
         {
             this.outgoing = outgoing;
             this.notice = notice;
@@ -123,6 +132,57 @@ internal sealed class MessageFeed : Panel
             {
                 senderLabel = CreateLabel(sender, SenderFont, Ink);
                 bubble.Controls.Add(senderLabel);
+            }
+
+            if (attachment is not null)
+            {
+                byte[] bytes;
+                try { bytes = attachment.GetBytes(); }
+                catch (IOException error) { bytes = []; message = error.Message; }
+                if (bytes.Length > 0)
+                {
+                    string size = bytes.Length < 1024 ? $"{bytes.Length} B" : $"{bytes.Length / 1024d:N0} KB";
+                    message = $"{attachment.DisplayName}\n{size}";
+                    if (attachment.ContentType.StartsWith("video/", StringComparison.Ordinal))
+                        message = "Video · " + message;
+                    if (attachment.ContentType.StartsWith("image/", StringComparison.Ordinal))
+                    {
+                        try
+                        {
+                            using var stream = new MemoryStream(bytes);
+                            using var original = Image.FromStream(stream);
+                            if (original.Width <= 4096 && original.Height <= 4096)
+                            {
+                                int height = Math.Max(1, Math.Min(180, original.Height * 220 / original.Width));
+                                int width = Math.Max(1, Math.Min(220, original.Width * height / original.Height));
+                                photo = new PictureBox { Image = new Bitmap(original, width, height),
+                                    SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(width, height) };
+                                bubble.Controls.Add(photo);
+                            }
+                        }
+                        catch (Exception error) when (error is ArgumentException or OutOfMemoryException)
+                        {
+                            // Unsupported image formats remain downloadable file cards.
+                        }
+                    }
+                    save = new Button { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                        BackColor = ChatTheme.Surface, ForeColor = Ink };
+                    save.Click += async (_, _) =>
+                    {
+                        using var dialog = new SaveFileDialog { FileName = attachment.DisplayName,
+                            Filter = "All files (*.*)|*.*", Title = "Save attachment" };
+                        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+                        save.Enabled = false;
+                        try { await File.WriteAllBytesAsync(dialog.FileName, bytes); }
+                        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                        {
+                            MessageBox.Show(FindForm(), error.Message, "Could not save attachment",
+                                MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        }
+                        finally { if (!save.IsDisposed) save.Enabled = true; }
+                    };
+                    bubble.Controls.Add(save);
+                }
             }
 
             messageLabel = CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
@@ -143,7 +203,20 @@ internal sealed class MessageFeed : Panel
                 PlaceLabel(senderLabel);
             }
 
+            if (photo is not null)
+            {
+                photo.Bounds = new Rectangle(horizontalPadding, y, Math.Min(textLimit, photo.Image!.Width),
+                    Math.Min(180, photo.Image.Height));
+                y += photo.Height + 6;
+                textWidth = Math.Max(textWidth, photo.Width);
+            }
             PlaceLabel(messageLabel);
+            if (save is not null)
+            {
+                save.Location = new Point(horizontalPadding, y + 6);
+                y += save.Height + 12;
+                textWidth = Math.Max(textWidth, save.Width);
+            }
             if (timeLabel.Text.Length > 0)
             {
                 PlaceLabel(timeLabel);
@@ -164,6 +237,12 @@ internal sealed class MessageFeed : Panel
                 y += label.Height;
                 textWidth = Math.Max(textWidth, label.Width);
             }
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) photo?.Image?.Dispose();
+            base.Dispose(disposing);
         }
 
         private static Label CreateLabel(string text, Font font, Color color) => new()

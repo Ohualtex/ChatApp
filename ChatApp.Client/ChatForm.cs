@@ -44,6 +44,7 @@ internal sealed class ChatForm : Form
     private Control login = null!;
     private Control composerBar = null!;
     private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, PlaceholderText = "Type a message" };
+    private readonly Button attach = new() { Text = "+", AccessibleName = "Attach a file", AutoSize = true };
     private readonly Button send = new() { Text = "Send", AutoSize = true };
     private readonly CancellationTokenSource closing = new();
     private ChatConnection? connection;
@@ -94,6 +95,7 @@ internal sealed class ChatForm : Form
         };
         closeMembers.Click += (_, _) => SetMembersDrawer(false);
         disconnect.Click += (_, _) => Disconnect("Disconnected");
+        attach.Click += async (_, _) => await PickAttachmentAsync();
         send.Click += async (_, _) => await SendAsync();
         composer.KeyDown += async (_, e) =>
         {
@@ -155,7 +157,7 @@ internal sealed class ChatForm : Form
             composer.Focus();
             while (await next.ReadAsync(lifetime) is { } packet && ReferenceEquals(connection, next) && !lifetime.IsCancellationRequested)
             {
-                if (packet.Type == "chat")
+                if (packet.Type is "chat" or "file")
                 {
                     ReceiveMessage(packet);
                 }
@@ -225,6 +227,54 @@ internal sealed class ChatForm : Form
         }
     }
 
+    private async Task PickAttachmentAsync()
+    {
+        if (connection is not { } current || connecting || sending || !selected.Online) return;
+        using var picker = new OpenFileDialog { Title = "Attach photo, video or file",
+            Filter = "All files (*.*)|*.*|Photos|*.png;*.jpg;*.jpeg;*.gif;*.bmp|Videos|*.mp4;*.mov;*.webm" };
+        if (picker.ShowDialog(this) != DialogResult.OK) return;
+        Conversation destination = selected;
+        sending = true;
+        RefreshControls();
+        try
+        {
+            ChatAttachment attachment = await ChatAttachment.FromFileAsync(picker.FileName, closing.Token);
+            sending = false;
+            if (ReferenceEquals(connection, current))
+                await SendAttachmentAsync(attachment, destination);
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException or OperationCanceledException)
+        {
+            if (!closing.IsCancellationRequested) messages.AddNotice(error.Message);
+        }
+        finally
+        {
+            sending = false;
+            if (!IsDisposed) RefreshControls();
+        }
+    }
+
+    private async Task SendAttachmentAsync(ChatAttachment attachment, Conversation destination)
+    {
+        if (connection is not { } current || connecting || sending || !destination.Online) return;
+        sending = true;
+        RefreshControls();
+        CancellationToken token = closing.Token;
+        try
+        {
+            await current.SendAsync(new ChatPacket("file", Recipient: destination.Peer, Attachment: attachment), token);
+        }
+        catch (Exception error) when (error is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
+        {
+            if (!token.IsCancellationRequested && ReferenceEquals(connection, current)) Disconnect(error.Message);
+        }
+        finally
+        {
+            sending = false;
+            if (!token.IsCancellationRequested) RefreshControls();
+        }
+    }
+
     private void Disconnect(string message)
     {
         ChatConnection? previous = connection;
@@ -271,7 +321,7 @@ internal sealed class ChatForm : Form
         chat.Messages.Add(packet);
         if (ReferenceEquals(chat, selected))
         {
-            messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, outgoing);
+            messages.AddPacket(packet, outgoing);
         }
         else if (!outgoing)
         {
@@ -290,7 +340,7 @@ internal sealed class ChatForm : Form
         messages.ClearMessages();
         foreach (ChatPacket packet in selected.Messages)
         {
-            messages.AddMessage(packet.Name ?? "Unknown", packet.Message ?? "", packet.Timestamp, packet.Name == joinedName);
+            messages.AddPacket(packet, packet.Name == joinedName);
         }
         RefreshConversationList();
         RefreshControls();
@@ -393,6 +443,7 @@ internal sealed class ChatForm : Form
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
         chatsNav.Enabled = connected;
+        attach.Enabled = connected && selected.Online && !sending;
         composer.Enabled = connected && selected.Online;
         send.Enabled = connected && selected.Online && !sending && !string.IsNullOrWhiteSpace(composer.Text);
     }
@@ -418,6 +469,9 @@ internal sealed class ChatForm : Form
     {
         StyleButton(connect, primary: true);
         StyleButton(send, primary: true);
+        StyleButton(attach, primary: false);
+        attach.Font = TitleFont;
+        tips.SetToolTip(attach, "Attach photo, video or file (up to 10 MB)");
         StyleButton(disconnect, primary: false);
         StyleButton(membersToggle, primary: false);
         membersToggle.Font = TitleFont;
@@ -491,30 +545,37 @@ internal sealed class ChatForm : Form
 
         var bar = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 2, AutoSize = false, Margin = Padding.Empty,
+            Dock = DockStyle.Fill, ColumnCount = 3, AutoSize = true, Margin = Padding.Empty,
             Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface
         };
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         composer.Margin = Padding.Empty;
         var inputShell = new RoundedPanel
         {
             Dock = DockStyle.Fill, Padding = new Padding(14, 13, 14, 9),
-            BackColor = ChatTheme.Raised, Margin = new Padding(0, 0, 10, 0)
+            BackColor = ChatTheme.Raised, Margin = new Padding(8, 0, 10, 0)
         };
         composer.BorderStyle = BorderStyle.None;
         composer.Dock = DockStyle.Fill;
         composer.Margin = Padding.Empty;
         inputShell.Controls.Add(composer);
-        send.AutoSize = false;
-        send.Size = new Size(76, 44);
-        send.Margin = Padding.Empty;
-        send.Anchor = AnchorStyles.None;
+        foreach (Button action in new[] { attach, send })
+        {
+            action.AutoSize = false;
+            action.Size = new Size(action == attach ? 44 : 76, 44);
+            action.Margin = Padding.Empty;
+            action.Anchor = AnchorStyles.None;
+        }
+        bar.AutoSize = false;
         bar.RowCount = 1;
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        bar.ColumnStyles[1] = new ColumnStyle(SizeType.Absolute, 76);
-        bar.Controls.Add(inputShell, 0, 0);
-        bar.Controls.Add(send, 1, 0);
+        bar.ColumnStyles[0] = new ColumnStyle(SizeType.Absolute, 44);
+        bar.ColumnStyles[2] = new ColumnStyle(SizeType.Absolute, 76);
+        bar.Controls.Add(attach, 0, 0);
+        bar.Controls.Add(inputShell, 1, 0);
+        bar.Controls.Add(send, 2, 0);
         composerBar = bar;
         right.Controls.Add(header, 0, 0);
         right.Controls.Add(body, 0, 1);

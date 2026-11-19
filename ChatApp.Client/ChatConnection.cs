@@ -1,15 +1,16 @@
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 
 namespace ChatApp.Client;
 
 internal sealed record ChatPacket(string Type, string? Name = null, string? Message = null, DateTimeOffset? Timestamp = null,
-    string[]? Users = null, string? Recipient = null);
+    string[]? Users = null, string? Recipient = null, ChatAttachment? Attachment = null);
 
 internal sealed class ChatConnection : IDisposable
 {
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web) { Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
     private readonly TcpClient tcp = new();
     private StreamReader? reader;
     private StreamWriter? writer;
