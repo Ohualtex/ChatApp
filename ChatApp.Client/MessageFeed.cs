@@ -10,7 +10,7 @@ internal sealed class MessageFeed : Panel
     private static readonly Font MetaFont = new("Segoe UI", 8);
     private static readonly Font SenderFont = new("Segoe UI", 9, FontStyle.Bold);
 
-    private readonly VScrollBar scrollBar = new() { Visible = false, SmallChange = 24, TabStop = false };
+    private readonly MessageScrollBar scrollBar = new() { Visible = false };
     private readonly List<MessageRow> rows = [];
     private int viewportHeight;
     private int contentHeight;
@@ -34,6 +34,7 @@ internal sealed class MessageFeed : Panel
         AccessibleName = "Chat messages";
         viewportHeight = ClientSize.Height;
         Controls.Add(scrollBar);
+        scrollBar.WheelRequested += (_, e) => OnMouseWheel(e);
         scrollBar.ValueChanged += (_, _) =>
         {
             if (arranging) return;
@@ -62,8 +63,9 @@ internal sealed class MessageFeed : Panel
         int notches = wheelRemainder / SystemInformation.MouseWheelScrollDelta;
         wheelRemainder %= SystemInformation.MouseWheelScrollDelta;
         int lines = SystemInformation.MouseWheelScrollLines;
-        int amount = lines < 0 ? scrollBar.LargeChange : Math.Max(0, lines) * scrollBar.SmallChange;
-        scrollBar.Value = Math.Clamp(scrollBar.Value - notches * amount, 0, BottomOffset);
+        int step = Math.Max(1, (int)Math.Round(24 * DeviceDpi / 96d));
+        int amount = lines < 0 ? Math.Max(1, viewportHeight) : Math.Max(0, lines) * step;
+        scrollBar.Value = (int)Math.Clamp((long)scrollBar.Value - (long)notches * amount, 0, BottomOffset);
     }
 
     public void ClearMessages()
@@ -154,18 +156,17 @@ internal sealed class MessageFeed : Panel
             int inset = Math.Max(18, Math.Min(72, ClientSize.Width / 20));
             Padding = new Padding(inset, 12, inset, 12);
             int available = Math.Max(1, ClientSize.Width - Padding.Horizontal);
+            int scrollWidth = Math.Max(1, (int)Math.Round(14 * DeviceDpi / 96d));
             bool hadScrollbar = contentHeight > viewportHeight;
             contentHeight = MeasureRows(RowWidth(hadScrollbar));
             bool overflow = contentHeight > ClientSize.Height;
             if (overflow != hadScrollbar) contentHeight = MeasureRows(RowWidth(overflow));
-            int RowWidth(bool narrow) => Math.Max(1, available - (narrow ? SystemInformation.VerticalScrollBarWidth : 0));
+            int RowWidth(bool narrow) => Math.Max(1, available - (narrow ? scrollWidth : 0));
             viewportHeight = ClientSize.Height;
             scrollBar.Visible = overflow;
-            scrollBar.Bounds = new Rectangle(Math.Max(0, ClientSize.Width - SystemInformation.VerticalScrollBarWidth),
-                0, SystemInformation.VerticalScrollBarWidth, ClientSize.Height);
-            scrollBar.Maximum = Math.Max(0, contentHeight - 1);
-            scrollBar.LargeChange = Math.Max(1, viewportHeight);
-            scrollBar.Value = follow ? BottomOffset : Math.Min(previousOffset, BottomOffset);
+            scrollBar.Bounds = new Rectangle(Math.Max(0, ClientSize.Width - scrollWidth),
+                0, scrollWidth, ClientSize.Height);
+            scrollBar.SetRange(contentHeight, viewportHeight, follow ? BottomOffset : Math.Min(previousOffset, BottomOffset));
             scrollBar.BringToFront();
             PositionRows();
         }
