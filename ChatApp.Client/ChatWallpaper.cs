@@ -9,7 +9,7 @@ internal static class ChatWallpaper
 
     public static void Paint(Graphics graphics, Rectangle bounds)
     {
-        using var brush = new TextureBrush(Tile, WrapMode.TileFlipXY);
+        using var brush = new TextureBrush(Tile, WrapMode.Tile);
         graphics.FillRectangle(brush, bounds);
     }
 
