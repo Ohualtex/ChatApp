@@ -63,7 +63,7 @@ internal sealed class MessageFeed : Panel
     public void AddPacket(ChatPacket packet, bool outgoing)
     {
         string time = packet.Timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
-        AddRow(new MessageRow(outgoing ? null : packet.Name, packet.Message ?? "", time, outgoing,
+        AddRow(new MessageRow(packet.Name, packet.Message ?? "", time, outgoing,
             attachment: packet.Attachment, recording: packet.Recording));
     }
 
@@ -122,6 +122,7 @@ internal sealed class MessageFeed : Panel
         private readonly Button? save;
         private readonly Button? play;
         private readonly VoicePlayback? playback;
+        private readonly VoiceMessageCard? voiceCard;
         private readonly bool outgoing;
         private readonly bool notice;
 
@@ -130,7 +131,7 @@ internal sealed class MessageFeed : Panel
             this.outgoing = outgoing;
             this.notice = notice;
             bubble = new RoundedPanel { BackColor = notice ? Canvas : outgoing ? SentFill : ChatTheme.Raised };
-            if (sender is not null)
+            if (sender is not null && !outgoing)
             {
                 senderLabel = CreateLabel(sender, SenderFont, Ink);
                 bubble.Controls.Add(senderLabel);
@@ -216,43 +217,13 @@ internal sealed class MessageFeed : Panel
 
             if (recording is not null)
             {
-                message = "Voice message  " + WaveAudio.FormatTime(recording.Duration);
-                playback = new VoicePlayback();
-                play = new Button { Text = "Play", AutoSize = true, FlatStyle = FlatStyle.Flat,
-                    BackColor = ChatTheme.Surface, ForeColor = Ink };
-                playback.Changed += () => play.Text = playback.Playing ? "Stop" : "Play";
-                play.Click += (_, _) =>
-                {
-                    if (playback.Playing) { playback.Stop(); return; }
-                    try { playback.Play(recording); }
-                    catch (Exception error) when (error is IOException or InvalidOperationException)
-                    {
-                        MessageBox.Show(FindForm(), error.Message, "Could not play recording", MessageBoxButtons.OK, MessageBoxIcon.Error);
-                    }
-                };
-                save = new Button { Text = "Save...", AutoSize = true, FlatStyle = FlatStyle.Flat,
-                    BackColor = ChatTheme.Surface, ForeColor = Ink };
-                save.Click += async (_, _) =>
-                {
-                    using var dialog = new SaveFileDialog { FileName = recording.FileName,
-                        Filter = "WAV audio (*.wav)|*.wav", Title = "Save voice message" };
-                    if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
-                    save.Enabled = false;
-                    try
-                    {
-                        await using var source = File.OpenRead(recording.Path);
-                        await using var destination = new FileStream(dialog.FileName, FileMode.Create, FileAccess.Write, FileShare.None, 65536, true);
-                        await source.CopyToAsync(destination);
-                    }
-                    catch (Exception error) when (error is IOException or UnauthorizedAccessException)
-                    { MessageBox.Show(FindForm(), error.Message, "Could not save recording", MessageBoxButtons.OK, MessageBoxIcon.Error); }
-                    finally { if (!save.IsDisposed) save.Enabled = true; }
-                };
-                bubble.Controls.AddRange([play, save]);
+                voiceCard = new VoiceMessageCard(recording, sender ?? "Unknown", time);
+                bubble.Controls.Add(voiceCard);
             }
 
             messageLabel = CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
             timeLabel = CreateLabel(time, MetaFont, Muted);
+            messageLabel.Visible = timeLabel.Visible = voiceCard is null;
             bubble.Controls.AddRange([messageLabel, timeLabel]);
             Controls.Add(bubble);
         }
@@ -267,6 +238,17 @@ internal sealed class MessageFeed : Panel
             if (senderLabel is not null)
             {
                 PlaceLabel(senderLabel);
+            }
+
+            if (voiceCard is not null)
+            {
+                int cardWidth = Math.Max(1, Math.Min(350, width * 3 / 4) - horizontalPadding * 2);
+                voiceCard.Bounds = new Rectangle(horizontalPadding, y, cardWidth, 68);
+                int height = y + voiceCard.Height + verticalPadding;
+                int voiceWidth = cardWidth + horizontalPadding * 2;
+                Size = new Size(width, height);
+                bubble.Bounds = new Rectangle(outgoing ? width - voiceWidth : 0, 0, voiceWidth, height);
+                return;
             }
 
             if (photo is not null)

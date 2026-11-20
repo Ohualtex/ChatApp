@@ -1,4 +1,5 @@
 using System.Media;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 
@@ -82,14 +83,18 @@ internal sealed class VoicePlayback : IDisposable
     private SoundPlayer? player;
     private MemoryStream? stream;
     private string? alias;
-    public bool Playing => player is not null || alias is not null;
+    private readonly Stopwatch elapsed = new();
+    private TimeSpan duration;
+    public bool Paused { get; private set; }
+    public bool Playing => (player is not null || alias is not null) && !Paused;
+    public TimeSpan Position => elapsed.Elapsed < duration ? elapsed.Elapsed : duration;
     public event Action? Changed;
 
     public VoicePlayback() => timer.Tick += (_, _) => Stop();
 
     public void Play(byte[] bytes)
     {
-        TimeSpan duration = WaveAudio.Duration(bytes);
+        duration = WaveAudio.Duration(bytes);
         active?.Stop();
         try
         {
@@ -97,6 +102,7 @@ internal sealed class VoicePlayback : IDisposable
             player = new SoundPlayer(stream);
             player.Load();
             player.Play();
+            elapsed.Restart();
             active = this;
             timer.Interval = (int)Math.Clamp(duration.TotalMilliseconds + 100, 100, int.MaxValue);
             timer.Start();
@@ -117,6 +123,8 @@ internal sealed class VoicePlayback : IDisposable
             alias = "play" + Guid.NewGuid().ToString("N");
             NativeAudio.Command($"open \"{clip.Path}\" type waveaudio alias {alias}");
             NativeAudio.Command($"play {alias}");
+            duration = clip.Duration;
+            elapsed.Restart();
             active = this;
             timer.Interval = (int)Math.Clamp(clip.Duration.TotalMilliseconds + 100, 100, int.MaxValue);
             timer.Start();
@@ -125,9 +133,26 @@ internal sealed class VoicePlayback : IDisposable
         catch { Stop(); throw; }
     }
 
+    public void TogglePause()
+    {
+        if (alias is null) return;
+        NativeAudio.Command($"{(Paused ? "resume" : "pause")} {alias}");
+        Paused = !Paused;
+        if (Paused) { elapsed.Stop(); timer.Stop(); }
+        else
+        {
+            elapsed.Start();
+            timer.Interval = (int)Math.Clamp((duration - Position).TotalMilliseconds + 100, 100, int.MaxValue);
+            timer.Start();
+        }
+        Changed?.Invoke();
+    }
+
     public void Stop()
     {
         timer.Stop();
+        elapsed.Reset();
+        Paused = false;
         if (alias is not null)
         {
             NativeAudio.Close(alias);
