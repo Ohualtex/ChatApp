@@ -1,5 +1,6 @@
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Runtime.InteropServices;
 
 namespace ChatApp.Client;
 
@@ -43,15 +44,15 @@ internal sealed class ChatForm : Form
     private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
     private Control login = null!;
     private Control composerBar = null!;
-    private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, PlaceholderText = "Type a message" };
-    private readonly Button attach = new() { Text = "+", AccessibleName = "Attach a file", AutoSize = true };
-    private readonly Button voice = new() { Text = "\uE720", AccessibleName = "Record a voice message" };
+    private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, AccessibleName = "Type a message" };
+    private readonly Button attach = new RecordingButton(RecordingAction.Attach) { AccessibleName = "Attach a file" };
+    private readonly Button voice = new RecordingButton(RecordingAction.Microphone) { AccessibleName = "Record a voice message" };
     private readonly VoiceRecordingBar recordingBar = new();
     private Conversation? recordingDestination;
     private ChatConnection? recordingConnection;
     private Control normalComposerBar = null!;
     private Control voiceComposerHost = null!;
-    private readonly Button send = new() { Text = "Send", AutoSize = true };
+    private readonly Button send = new RecordingButton(RecordingAction.Send) { AccessibleName = "Send message" };
     private readonly CancellationTokenSource closing = new();
     private ChatConnection? connection;
     private bool connecting;
@@ -115,6 +116,8 @@ internal sealed class ChatForm : Form
             }
         };
         composer.TextChanged += (_, _) => RefreshControls();
+        composer.HandleCreated += (_, _) => SetComposerHint();
+        composer.GotFocus += (_, _) => SetComposerHint();
         FormClosed += (_, _) =>
         {
             recordingBar.Cancel();
@@ -515,7 +518,10 @@ internal sealed class ChatForm : Form
         composer.Enabled = connected && selected.Online && !recordingBar.Active;
         attach.Enabled = voice.Enabled = connected && selected.Online && !sending;
 
-        send.Enabled = connected && selected.Online && !sending && !string.IsNullOrWhiteSpace(composer.Text);
+        bool hasMessage = !string.IsNullOrWhiteSpace(composer.Text);
+        voice.Visible = !hasMessage;
+        send.Visible = hasMessage;
+        send.Enabled = connected && selected.Online && !sending && hasMessage;
     }
 
     protected override void OnClientSizeChanged(EventArgs e)
@@ -538,14 +544,15 @@ internal sealed class ChatForm : Form
     private Control BuildLayout()
     {
         StyleButton(connect, primary: true);
-        StyleButton(send, primary: true);
-        StyleButton(voice, primary: false);
-        voice.Font = new Font("Segoe MDL2 Assets", 16);
-        voice.Padding = Padding.Empty;
-        tips.SetToolTip(voice, "Record a voice message");
-        StyleButton(attach, primary: false);
-        attach.Font = TitleFont;
+        foreach (Button action in new[] { attach, voice, send })
+        {
+            StyleButton(action, primary: false);
+            action.Padding = Padding.Empty;
+            action.BackColor = ChatTheme.Raised;
+        }
         tips.SetToolTip(attach, "Attach photo, video or file (up to 10 MB)");
+        tips.SetToolTip(voice, "Record a voice message");
+        tips.SetToolTip(send, "Send message");
         StyleButton(disconnect, primary: false);
         StyleButton(membersToggle, primary: false);
         membersToggle.Font = TitleFont;
@@ -617,48 +624,41 @@ internal sealed class ChatForm : Form
 
         body.Controls.Add(login);
 
-        var bar = new TableLayoutPanel
+        var normalHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface };
+        var inputShell = new RoundedPanel(capsule: true)
         {
-            Dock = DockStyle.Fill, ColumnCount = 4, AutoSize = true, Margin = Padding.Empty,
-            Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface
+            Dock = DockStyle.Fill, Padding = new Padding(12, 5, 12, 5), BackColor = ChatTheme.Raised
         };
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        var bar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
+        bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
-        bar.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        composer.Margin = Padding.Empty;
-        var inputShell = new RoundedPanel
-        {
-            Dock = DockStyle.Fill, Padding = new Padding(14, 13, 14, 9),
-            BackColor = ChatTheme.Raised, Margin = new Padding(8, 0, 10, 0)
-        };
+        bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         composer.BorderStyle = BorderStyle.None;
-        composer.Dock = DockStyle.Fill;
+        composer.Dock = DockStyle.None;
         composer.Margin = Padding.Empty;
-        inputShell.Controls.Add(composer);
+        var textHost = new Panel { Dock = DockStyle.Fill, Margin = new Padding(8, 0, 8, 0) };
+        textHost.Controls.Add(composer);
+        textHost.SizeChanged += (_, _) => CenterComposer();
+        composer.FontChanged += (_, _) => CenterComposer();
+        void CenterComposer() => composer.SetBounds(0, Math.Max(0, (textHost.Height - composer.PreferredHeight) / 2), textHost.Width, composer.PreferredHeight);
+        var actionHost = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         foreach (Button action in new[] { attach, voice, send })
         {
             action.AutoSize = false;
-            action.Size = new Size(action == send ? 76 : 44, 44);
+            action.Dock = DockStyle.Fill;
             action.Margin = Padding.Empty;
-            action.Anchor = AnchorStyles.None;
         }
-        bar.AutoSize = false;
-        bar.RowCount = 1;
-        bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        bar.ColumnStyles[0] = new ColumnStyle(SizeType.Absolute, 44);
-        send.AutoSize = true;
-        send.AutoSizeMode = AutoSizeMode.GrowAndShrink;
-        send.MinimumSize = new Size(76, 44);
-        bar.ColumnStyles[3] = new ColumnStyle(SizeType.AutoSize);
+        actionHost.Controls.Add(voice);
+        actionHost.Controls.Add(send);
         bar.Controls.Add(attach, 0, 0);
-        bar.Controls.Add(inputShell, 1, 0);
-        voice.Margin = new Padding(0, 0, 4, 0);
-        bar.Controls.Add(voice, 2, 0);
-        bar.Controls.Add(send, 3, 0);
-        normalComposerBar = bar;
+        bar.Controls.Add(textHost, 1, 0);
+        bar.Controls.Add(actionHost, 2, 0);
+        inputShell.Controls.Add(bar);
+        normalHost.Controls.Add(inputShell);
+        normalComposerBar = normalHost;
         var footer = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = ChatTheme.Surface };
-        footer.Controls.Add(bar);
+        footer.Controls.Add(normalHost);
         var recordingHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14, 9, 14, 9), Visible = false };
         recordingHost.Controls.Add(recordingBar);
         voiceComposerHost = recordingHost;
@@ -683,6 +683,11 @@ internal sealed class ChatForm : Form
         port.ForeColor = Ink;
         return layout;
     }
+
+    private void SetComposerHint() => SendMessage(composer.Handle, 0x1501, new IntPtr(1), "Type a message");
+
+    [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)]
+    private static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr parameter, string text);
 
     private static void StyleInput(TextBox input)
     {

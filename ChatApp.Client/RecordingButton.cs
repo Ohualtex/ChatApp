@@ -1,6 +1,6 @@
 namespace ChatApp.Client;
 
-internal enum RecordingAction { Delete, Pause, Resume, Send }
+internal enum RecordingAction { Delete, Pause, Resume, Send, Microphone, Attach }
 
 internal sealed class RecordingButton : Button
 {
@@ -41,6 +41,37 @@ internal sealed class RecordingButton : Button
                 break;
             case RecordingAction.Resume:
                 e.Graphics.FillPolygon(brush, [new PointF(x - 5, y - 8), new PointF(x + 7, y), new PointF(x - 5, y + 8)]);
+                break;
+            case RecordingAction.Microphone:
+                using (var capsule = new System.Drawing.Drawing2D.GraphicsPath())
+                {
+                    capsule.AddArc(x - 4, y - 11, 8, 8, 180, 180);
+                    capsule.AddLine(x + 4, y - 7, x + 4, y - 1);
+                    capsule.AddArc(x - 4, y - 5, 8, 8, 0, 180);
+                    capsule.CloseFigure();
+                    e.Graphics.DrawPath(pen, capsule);
+                }
+                e.Graphics.DrawLine(pen, x - 8, y - 2, x - 8, y);
+                e.Graphics.DrawArc(pen, x - 8, y - 8, 16, 16, 0, 180);
+                e.Graphics.DrawLine(pen, x + 8, y, x + 8, y - 2);
+                e.Graphics.DrawLine(pen, x, y + 8, x, y + 12);
+                e.Graphics.DrawLine(pen, x - 4, y + 12, x + 4, y + 12);
+                break;
+            case RecordingAction.Attach:
+                using (var clip = new System.Drawing.Drawing2D.GraphicsPath())
+                {
+                    clip.AddLine(x + 6, y - 7, x + 6, y + 6);
+                    clip.AddBezier(x + 6, y + 6, x + 6, y + 13, x - 6, y + 13, x - 6, y + 6);
+                    clip.AddLine(x - 6, y + 6, x - 6, y - 6);
+                    clip.AddBezier(x - 6, y - 6, x - 6, y - 13, x + 3, y - 13, x + 3, y - 6);
+                    clip.AddLine(x + 3, y - 6, x + 3, y + 5);
+                    clip.AddBezier(x + 3, y + 5, x + 3, y + 9, x - 3, y + 9, x - 3, y + 5);
+                    clip.AddLine(x - 3, y + 5, x - 3, y - 5);
+                    using var tilt = new System.Drawing.Drawing2D.Matrix();
+                    tilt.RotateAt(35, new PointF(x, y));
+                    clip.Transform(tilt);
+                    e.Graphics.DrawPath(pen, clip);
+                }
                 break;
             case RecordingAction.Delete:
                 e.Graphics.DrawLine(pen, x - 8, y - 7, x + 8, y - 7);

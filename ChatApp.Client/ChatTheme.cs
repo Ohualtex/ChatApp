@@ -25,8 +25,11 @@ internal static class ChatTheme
 
 internal class RoundedPanel : Panel
 {
-    public RoundedPanel()
+    private readonly bool capsule;
+    public RoundedPanel() : this(false) { }
+    public RoundedPanel(bool capsule)
     {
+        this.capsule = capsule;
         DoubleBuffered = true;
         ResizeRedraw = true;
     }
@@ -35,7 +38,7 @@ internal class RoundedPanel : Panel
     {
         e.Graphics.Clear(Parent?.BackColor ?? ChatTheme.Canvas);
         if (Width < 1 || Height < 1) return;
-        float diameter = Math.Min(20, Math.Min(Width, Height));
+        float diameter = Math.Min(capsule ? Height : 20, Math.Min(Width, Height));
         using var path = new GraphicsPath();
         path.AddArc(0, 0, diameter, diameter, 180, 90);
         path.AddArc(Width - diameter - 1, 0, diameter, diameter, 270, 90);
