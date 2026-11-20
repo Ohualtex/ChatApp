@@ -1,3 +1,4 @@
+using System.Drawing.Drawing2D;
 using System.Net.Sockets;
 using System.Text.Json;
 using System.Runtime.InteropServices;
@@ -14,6 +15,10 @@ internal sealed class ChatForm : Form
     private static readonly Color Muted = ChatTheme.Muted;
     private static readonly Bitmap Logo = WindowIcon.ToBitmap();
     private static readonly Font TitleFont = new("Segoe UI", 15, FontStyle.Bold);
+    private static readonly Font SidebarTitleFont = new("Segoe UI", 16, FontStyle.Regular);
+    private static readonly Font ConversationFont = new("Segoe UI", 10, FontStyle.Regular);
+    private static readonly Font PreviewFont = new("Segoe UI", 9);
+    private static readonly Font SidebarIconFont = new("Segoe MDL2 Assets", 14);
     private static readonly Font BodyFont = new("Segoe UI", 10);
     private static readonly Font ActionFont = new("Segoe UI", 10, FontStyle.Bold);
 
@@ -33,9 +38,9 @@ internal sealed class ChatForm : Form
         BackColor = ChatTheme.Canvas, ForeColor = Ink, AccessibleName = "Conversations", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 76
     };
     private readonly TextBox search = new() { PlaceholderText = "Search chats", Dock = DockStyle.Fill };
-    private readonly Button chatsNav = new() { Text = "\uE8F2", AccessibleName = "Chats" };
-    private readonly Button accountNav = new() { Text = "\uE77B", AccessibleName = "Account" };
-    private readonly Button settingsNav = new() { Text = "\uE713", AccessibleName = "Settings" };
+    private readonly NavigationButton chatsNav = new() { Text = "\uE8F2", AccessibleName = "Chats" };
+    private readonly NavigationButton accountNav = new() { Text = "\uE77B", AccessibleName = "Account" };
+    private readonly NavigationButton settingsNav = new() { Text = "\uE713", AccessibleName = "Settings" };
     private readonly ToolTip tips = new();
     private Control chatsContent = null!;
     private Control settingsContent = null!;
@@ -62,6 +67,7 @@ internal sealed class ChatForm : Form
     private readonly Dictionary<string, Conversation> conversations = new(StringComparer.Ordinal);
     private Conversation selected = new(null);
     private bool refreshingChats;
+    private int hoveredConversation = -1;
     private Panel? chatArea;
     private Control? chatContent;
     private bool compactLayout;
@@ -86,6 +92,7 @@ internal sealed class ChatForm : Form
             settingsContent.Visible = false;
             chatsContent.Visible = true;
             SetMembersDrawer(true);
+            SelectNavigation(chatsNav);
         };
         backToChats.Click += (_, _) => SetMembersDrawer(true);
         chatDivider.MouseDown += (_, e) =>
@@ -102,12 +109,29 @@ internal sealed class ChatForm : Form
             LayoutChatColumns();
         };
         chatDivider.MouseUp += (_, _) => chatDivider.Capture = false;
-        settingsNav.Click += (_, _) => ShowSettings();
-        accountNav.Click += (_, _) => ShowSettings();
+        settingsNav.Click += (_, _) => { ShowSettings(); SelectNavigation(settingsNav); };
+        accountNav.Click += (_, _) => { ShowSettings(); SelectNavigation(accountNav); };
         search.TextChanged += (_, _) => RefreshConversationList();
         Shown += (_, _) => ChatTheme.DarkTitle(this);
         connect.Click += async (_, _) => await ConnectAndListenAsync();
         memberList.DrawItem += DrawConversation;
+        memberList.MouseMove += (_, e) =>
+        {
+            int index = memberList.IndexFromPoint(e.Location);
+            if (index == hoveredConversation) return;
+            int previous = hoveredConversation;
+            hoveredConversation = index;
+            InvalidateConversation(previous);
+            InvalidateConversation(index);
+        };
+        memberList.MouseLeave += (_, _) =>
+        {
+            int previous = hoveredConversation;
+            hoveredConversation = -1;
+            InvalidateConversation(previous);
+        };
+        memberList.SizeChanged += (_, _) => memberList.Invalidate();
+        memberList.DpiChangedAfterParent += (_, _) => memberList.ItemHeight = ScaleLayout(80);
         memberList.SelectedIndexChanged += (_, _) =>
         {
             if (!refreshingChats && memberList.SelectedItem is Conversation chat)
@@ -146,6 +170,7 @@ internal sealed class ChatForm : Form
             closing.Dispose();
             tips.Dispose();
         };
+        SelectNavigation(chatsNav);
         RefreshControls();
     }
 
@@ -454,6 +479,7 @@ internal sealed class ChatForm : Form
     private void RefreshConversationList()
     {
         refreshingChats = true;
+        hoveredConversation = -1;
         memberList.BeginUpdate();
         try
         {
@@ -476,32 +502,72 @@ internal sealed class ChatForm : Form
         }
     }
 
+    private void SelectNavigation(NavigationButton active)
+    {
+        foreach (NavigationButton button in new[] { chatsNav, accountNav, settingsNav })
+            button.SetSelected(ReferenceEquals(button, active));
+    }
+
+    private void InvalidateConversation(int index)
+    {
+        if (index >= 0 && index < memberList.Items.Count)
+            memberList.Invalidate(memberList.GetItemRectangle(index));
+    }
+
     private void DrawConversation(object? sender, DrawItemEventArgs e)
     {
         if (e.Index < 0) return;
         var chat = (Conversation)memberList.Items[e.Index];
-        using var fill = new SolidBrush(ReferenceEquals(chat, selected) ? ChatTheme.Raised : Canvas);
-        e.Graphics.FillRectangle(fill, e.Bounds);
-        var avatar = new Rectangle(e.Bounds.X + 10, e.Bounds.Y + 15, 44, 44);
-        using var circle = new SolidBrush(ChatTheme.Surface);
+        using (var background = new SolidBrush(Canvas)) e.Graphics.FillRectangle(background, e.Bounds);
+        var card = Rectangle.Inflate(e.Bounds, -ScaleLayout(2), -ScaleLayout(3));
+        bool active = ReferenceEquals(chat, selected);
+        if (active || e.Index == hoveredConversation)
+        {
+            int diameter = ScaleLayout(20);
+            using var path = new GraphicsPath();
+            path.AddArc(card.Left, card.Top, diameter, diameter, 180, 90);
+            path.AddArc(card.Right - diameter, card.Top, diameter, diameter, 270, 90);
+            path.AddArc(card.Right - diameter, card.Bottom - diameter, diameter, diameter, 0, 90);
+            path.AddArc(card.Left, card.Bottom - diameter, diameter, diameter, 90, 90);
+            path.CloseFigure();
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            using var fill = new SolidBrush(active ? ChatTheme.Raised : ChatTheme.Surface);
+            e.Graphics.FillPath(fill, path);
+        }
+        int avatarSize = ScaleLayout(48);
+        var avatar = new Rectangle(card.Left + ScaleLayout(12), card.Top + (card.Height - avatarSize) / 2,
+            avatarSize, avatarSize);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using var circle = new SolidBrush(chat.Peer is null ? Color.FromArgb(40, 48, 46) : Color.FromArgb(48, 50, 54));
         e.Graphics.FillEllipse(circle, avatar);
-        TextRenderer.DrawText(e.Graphics, chat.Peer is null ? "#" : System.Globalization.StringInfo.GetNextTextElement(chat.Title).ToUpperInvariant(),
-            ActionFont, avatar, Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
-        int left = e.Bounds.X + 66;
-        var title = new Rectangle(left, e.Bounds.Y + 12, Math.Max(1, e.Bounds.Width - 130), 24);
-        var preview = new Rectangle(left, e.Bounds.Y + 39, Math.Max(1, e.Bounds.Width - 110), 22);
-        TextRenderer.DrawText(e.Graphics, chat.Title, ActionFont, title, Ink, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
-        TextRenderer.DrawText(e.Graphics, chat.Preview, BodyFont, preview, Muted, TextFormatFlags.EndEllipsis | TextFormatFlags.NoPrefix);
+        string avatarText = chat.Peer is null ? "\uE902"
+            : System.Globalization.StringInfo.GetNextTextElement(chat.Title).ToUpperInvariant();
+        const TextFormatFlags flags = TextFormatFlags.SingleLine | TextFormatFlags.EndEllipsis
+            | TextFormatFlags.NoPrefix | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding;
+        TextRenderer.DrawText(e.Graphics, avatarText, chat.Peer is null ? SidebarIconFont : ActionFont,
+            avatar, Ink, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
+        int left = avatar.Right + ScaleLayout(12);
+        int right = card.Right - ScaleLayout(12);
+        int lineHeight = ScaleLayout(24);
+        int top = card.Top + (card.Height - lineHeight * 2) / 2;
         string time = chat.Messages.LastOrDefault()?.Timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
-        TextRenderer.DrawText(e.Graphics, time, Font, new Rectangle(e.Bounds.Right - 58, e.Bounds.Y + 13, 50, 20),
-            Muted, TextFormatFlags.Right);
+        int timeWidth = time.Length == 0 ? 0 : TextRenderer.MeasureText(time, PreviewFont).Width;
+        var title = new Rectangle(left, top, Math.Max(1, right - left - timeWidth - ScaleLayout(8)), lineHeight);
+        TextRenderer.DrawText(e.Graphics, chat.Title, ConversationFont, title, Ink, flags);
+        TextRenderer.DrawText(e.Graphics, time, PreviewFont,
+            new Rectangle(right - timeWidth, top, timeWidth, lineHeight),
+            chat.Unread > 0 ? Accent : Muted, flags | TextFormatFlags.Right);
+        int badgeWidth = chat.Unread > 99 ? ScaleLayout(30) : ScaleLayout(22);
+        int previewRight = chat.Unread > 0 ? right - badgeWidth - ScaleLayout(8) : right;
+        var preview = new Rectangle(left, top + lineHeight, Math.Max(1, previewRight - left), lineHeight);
+        TextRenderer.DrawText(e.Graphics, chat.Preview, PreviewFont, preview, Muted, flags);
         if (chat.Unread > 0)
         {
-            var badge = new Rectangle(e.Bounds.Right - 32, e.Bounds.Y + 41, 22, 22);
+            var badge = new Rectangle(right - badgeWidth, top + lineHeight + ScaleLayout(1), badgeWidth, ScaleLayout(22));
             using var green = new SolidBrush(Accent);
             e.Graphics.FillEllipse(green, badge);
-            TextRenderer.DrawText(e.Graphics, chat.Unread > 99 ? "99+" : chat.Unread.ToString(),
-                Font, badge, Canvas, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
+            TextRenderer.DrawText(e.Graphics, chat.Unread > 99 ? "99+" : chat.Unread.ToString(), PreviewFont,
+                badge, Canvas, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
     }
 
@@ -631,7 +697,7 @@ internal sealed class ChatForm : Form
         foreach (Button button in new[] { chatsNav, accountNav, settingsNav })
         {
             StyleButton(button, primary: false);
-            button.Font = new Font("Segoe MDL2 Assets", 16);
+            button.Font = SidebarIconFont;
             button.Padding = Padding.Empty;
             button.Margin = new Padding(0, 2, 0, 2);
             button.AutoSize = false;
@@ -764,20 +830,41 @@ internal sealed class ChatForm : Form
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 44));
-        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 52));
+        layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 28));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
+        layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = SidebarTitleFont, Anchor = AnchorStyles.Left, Margin = new Padding(10, 0, 0, 0) }, 0, 0);
 
-        StyleInput(search);
-        search.Margin = new Padding(0, 7, 0, 7);
+        var searchShell = new RoundedPanel(capsule: true)
+        {
+            Dock = DockStyle.Fill, Margin = new Padding(8, 5, 8, 5),
+            Padding = new Padding(12, 8, 12, 8), BackColor = ChatTheme.Raised
+        };
+        var searchIcon = new Label
+        {
+            Text = "\uE721", Font = SidebarIconFont, ForeColor = Muted, Dock = DockStyle.Left,
+            Width = 28, TextAlign = ContentAlignment.MiddleLeft
+        };
+        search.BorderStyle = BorderStyle.None;
+        search.BackColor = ChatTheme.Raised;
+        search.ForeColor = Ink;
+        search.AccessibleName = "Search chats";
         search.Dock = DockStyle.None;
-        search.Anchor = AnchorStyles.Left | AnchorStyles.Right;
-        layout.Controls.Add(search, 0, 1);
-        layout.SetColumnSpan(search, 2);
+        var searchTextHost = new Panel { Dock = DockStyle.Fill, Padding = Padding.Empty };
+        searchTextHost.Controls.Add(search);
+        void PositionSearch() => search.SetBounds(0, Math.Max(0, (searchTextHost.Height - search.PreferredHeight) / 2),
+            searchTextHost.Width, search.PreferredHeight);
+        searchTextHost.SizeChanged += (_, _) => PositionSearch();
+        search.FontChanged += (_, _) => PositionSearch();
+        searchShell.Controls.Add(searchTextHost);
+        searchShell.Controls.Add(searchIcon);
+        layout.Controls.Add(searchShell, 0, 1);
+        layout.SetColumnSpan(searchShell, 2);
+        memberCount.Margin = new Padding(12, 4, 0, 0);
         layout.Controls.Add(memberCount, 0, 2);
         layout.SetColumnSpan(memberCount, 2);
-        memberList.Margin = new Padding(0, 8, 0, 0);
+        memberList.ItemHeight = ScaleLayout(80);
+        memberList.Margin = new Padding(0, 4, 0, 0);
         layout.Controls.Add(memberList, 0, 3);
         layout.SetColumnSpan(memberList, 2);
         chatsContent = layout;
