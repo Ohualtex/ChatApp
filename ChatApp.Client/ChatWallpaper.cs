@@ -7,11 +7,11 @@ internal static class ChatWallpaper
 {
     private static readonly Bitmap Wallpaper = CreateWallpaper();
 
-    public static void Paint(Graphics graphics, Rectangle bounds)
+    public static void Paint(Graphics graphics, Rectangle bounds, int verticalOffset = 0)
     {
         using var background = new SolidBrush(ChatTheme.Canvas);
         graphics.FillRectangle(background, bounds);
-        graphics.DrawImageUnscaled(Wallpaper, Point.Empty);
+        graphics.DrawImageUnscaled(Wallpaper, 0, -verticalOffset);
     }
 
     private static Bitmap CreateWallpaper()
@@ -44,4 +44,19 @@ internal static class ChatWallpaper
         graphics.DrawImage(source, new Rectangle(Point.Empty, wallpaper.Size), 0, 0, source.Width, source.Height, GraphicsUnit.Pixel, colors);
         return wallpaper;
     }
+}
+
+internal sealed class WallpaperPanel : Panel
+{
+    private readonly Func<int> verticalOffset;
+
+    public WallpaperPanel(Func<int> verticalOffset)
+    {
+        this.verticalOffset = verticalOffset;
+        DoubleBuffered = true;
+        ResizeRedraw = true;
+    }
+
+    protected override void OnPaintBackground(PaintEventArgs e)
+        => ChatWallpaper.Paint(e.Graphics, ClientRectangle, verticalOffset());
 }

@@ -13,7 +13,8 @@ internal sealed class ChatForm : Form
     private static readonly Color Canvas = ChatTheme.Canvas;
     private static readonly Color Ink = ChatTheme.Ink;
     private static readonly Color Muted = ChatTheme.Muted;
-    private static readonly Bitmap Logo = WindowIcon.ToBitmap();
+    private static readonly Font HeaderFont = new("Segoe UI", 12, FontStyle.Bold);
+    private static readonly Font ComposerFont = new("Segoe UI", 11);
     private static readonly Font TitleFont = new("Segoe UI", 15, FontStyle.Bold);
     private static readonly Font SidebarTitleFont = new("Segoe UI", 16, FontStyle.Regular);
     private static readonly Font ConversationFont = new("Segoe UI", 10, FontStyle.Regular);
@@ -25,9 +26,10 @@ internal sealed class ChatForm : Form
     private readonly TextBox user = new() { PlaceholderText = "User name", Dock = DockStyle.Fill, MaxLength = 24 };
     private readonly TextBox host = new() { Text = "127.0.0.1", Dock = DockStyle.Fill };
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
-    private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
+    private readonly Label status = new() { Text = "Disconnected", AutoSize = false, AutoEllipsis = true };
+    private readonly ConversationAvatar conversationAvatar = new();
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
-    private readonly Label membersToggle = new() { Text = "General", AutoSize = true };
+    private readonly Label membersToggle = new() { Text = "General", AutoSize = false, AutoEllipsis = true };
     private readonly Button backToChats = new() { Text = "←", AccessibleName = "Back to chats", AutoSize = true };
     private readonly Panel chatDivider = new() { Cursor = Cursors.VSplit, BackColor = ChatTheme.Raised };
     private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 320, BackColor = ChatTheme.Canvas };
@@ -389,6 +391,9 @@ internal sealed class ChatForm : Form
         connecting = false;
         previous?.Dispose();
         recordingBar.Cancel();
+        settingsContent.Visible = false;
+        chatsContent.Visible = true;
+        SelectNavigation(chatsNav);
         SetMembersDrawer(false);
         UpdateMembers([], "");
         loginStatus.Text = message;
@@ -582,8 +587,12 @@ internal sealed class ChatForm : Form
         bool offline = connection is null && !connecting;
         bool connected = connection is not null && !connecting;
         user.Enabled = host.Enabled = port.Enabled = connect.Enabled = offline;
-        status.Text = connected ? selected.Online ? "Online" : "Offline" : connecting ? "Connecting…" : "Offline";
-        status.ForeColor = connected && selected.Online ? Accent : Muted;
+        status.Text = connected ? selected.Peer is null
+            ? (memberCount.Text.Length > 0 ? memberCount.Text : "Shared room")
+            : selected.Online ? "Online" : "Offline"
+            : connecting ? "Connecting…" : "Offline";
+        status.ForeColor = Muted;
+        conversationAvatar.ShowConversation(selected.Title, selected.Peer is null);
         login.Visible = !connected;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
@@ -677,11 +686,11 @@ internal sealed class ChatForm : Form
         backToChats.Margin = new Padding(0, 0, 8, 0);
         backToChats.Visible = false;
         backToChats.Anchor = AnchorStyles.Left;
-        membersToggle.Font = TitleFont;
+        membersToggle.Font = HeaderFont;
         membersToggle.BackColor = ChatTheme.Surface;
         membersToggle.Padding = Padding.Empty;
         membersToggle.AccessibleName = "Conversation name";
-        membersToggle.Anchor = AnchorStyles.Left;
+        membersToggle.Dock = DockStyle.Fill;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -713,31 +722,38 @@ internal sealed class ChatForm : Form
         right.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         right.RowStyles.Add(new RowStyle(SizeType.Absolute, 68));
         right.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 72));
+        right.RowStyles.Add(new RowStyle(SizeType.Absolute, 80));
 
         var header = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 5, Margin = Padding.Empty,
-            Padding = new Padding(18, 8, 16, 8), BackColor = ChatTheme.Surface
+            Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty,
+            Padding = new Padding(16, 10, 16, 10), BackColor = ChatTheme.Surface
         };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 56));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         header.Controls.Add(backToChats, 0, 0);
-        header.Controls.Add(new PictureBox
+        conversationAvatar.Size = new Size(44, 44);
+        conversationAvatar.Anchor = AnchorStyles.Left;
+        conversationAvatar.Margin = new Padding(0, 0, 12, 0);
+        header.Controls.Add(conversationAvatar, 1, 0);
+        var heading = new TableLayoutPanel
         {
-            Image = Logo, Size = new Size(34, 34), SizeMode = PictureBoxSizeMode.Zoom,
-            Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0)
-        }, 1, 0);
-        header.Controls.Add(membersToggle, 2, 0);
-        status.Margin = new Padding(8, 0, 12, 0);
-        header.Controls.Add(status, 3, 0);
-        disconnect.Anchor = AnchorStyles.Right;
-        disconnect.Margin = Padding.Empty;
-        membersToggle.Margin = new Padding(4, 0, 8, 0);
-        header.Controls.Add(disconnect, 4, 0);
+            Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 2, Margin = Padding.Empty
+        };
+        heading.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
+        heading.RowStyles.Add(new RowStyle(SizeType.Percent, 55));
+        heading.RowStyles.Add(new RowStyle(SizeType.Percent, 45));
+        membersToggle.Margin = Padding.Empty;
+        membersToggle.TextAlign = ContentAlignment.BottomLeft;
+        status.Dock = DockStyle.Fill;
+        status.Font = PreviewFont;
+        status.TextAlign = ContentAlignment.TopLeft;
+        status.Margin = new Padding(0, 2, 0, 0);
+        heading.Controls.Add(membersToggle, 0, 0);
+        heading.Controls.Add(status, 0, 1);
+        header.Controls.Add(heading, 2, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
         login = BuildLogin();
@@ -746,16 +762,17 @@ internal sealed class ChatForm : Form
 
         body.Controls.Add(login);
 
-        var normalHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14, 9, 14, 9), BackColor = ChatTheme.Surface };
+        var normalHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 8, 12, 10), BackColor = Color.Transparent };
         var inputShell = new RoundedPanel(capsule: true)
         {
-            Dock = DockStyle.Fill, Padding = new Padding(12, 5, 12, 5), BackColor = ChatTheme.Raised
+            Dock = DockStyle.Fill, Padding = new Padding(16, 8, 16, 8), BackColor = ChatTheme.Raised
         };
         var bar = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, RowCount = 1, Margin = Padding.Empty };
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         bar.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 44));
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
+        composer.Font = ComposerFont;
         composer.BorderStyle = BorderStyle.None;
         composer.Dock = DockStyle.None;
         composer.Margin = Padding.Empty;
@@ -779,9 +796,9 @@ internal sealed class ChatForm : Form
         inputShell.Controls.Add(bar);
         normalHost.Controls.Add(inputShell);
         normalComposerBar = normalHost;
-        var footer = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = ChatTheme.Surface };
+        var footer = new WallpaperPanel(() => messages.Height) { Dock = DockStyle.Fill, Margin = Padding.Empty };
         footer.Controls.Add(normalHost);
-        var recordingHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(14, 9, 14, 9), Visible = false };
+        var recordingHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 8, 12, 10), BackColor = Color.Transparent, Visible = false };
         recordingHost.Controls.Add(recordingBar);
         voiceComposerHost = recordingHost;
         footer.Controls.Add(recordingHost);
@@ -872,6 +889,8 @@ internal sealed class ChatForm : Form
             Padding = new Padding(18), Visible = false };
         settings.Controls.Add(new Label { Text = "Settings", Font = TitleFont, AutoSize = true });
         settings.Controls.Add(accountSummary);
+        disconnect.Margin = new Padding(0, 18, 0, 0);
+        settings.Controls.Add(disconnect);
         settingsContent = settings;
         membersDrawer.Controls.Add(layout);
         membersDrawer.Controls.Add(settings);
