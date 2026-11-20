@@ -30,7 +30,23 @@ internal sealed class MessageFeed : Panel
         AccessibleName = "Chat messages";
         viewportHeight = ClientSize.Height;
         Controls.Add(scrollBar);
-        scrollBar.ValueChanged += (_, _) => { if (!arranging) PositionRows(); };
+        scrollBar.ValueChanged += (_, _) =>
+        {
+            if (arranging) return;
+            PositionRows();
+            Update();
+        };
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            CreateParams parameters = base.CreateParams;
+            // Compose the wallpaper and child controls before presenting the frame.
+            parameters.ExStyle |= 0x02000000; // WS_EX_COMPOSITED
+            return parameters;
+        }
     }
 
     protected override void OnPaintBackground(PaintEventArgs e) => ChatWallpaper.Paint(e.Graphics, ClientRectangle);
@@ -72,9 +88,13 @@ internal sealed class MessageFeed : Panel
     private void AddRow(MessageRow row)
     {
         bool follow = FollowingNewest;
+        row.Visible = false;
         rows.Add(row);
         Controls.Add(row);
         LayoutRows(follow);
+        row.Visible = true;
+        Invalidate(invalidateChildren: true);
+        Update();
     }
 
     protected override void OnSizeChanged(EventArgs e)
@@ -93,9 +113,11 @@ internal sealed class MessageFeed : Panel
         try
         {
             int available = Math.Max(1, ClientSize.Width - Padding.Horizontal);
-            contentHeight = MeasureRows(available);
+            bool hadScrollbar = contentHeight > viewportHeight;
+            contentHeight = MeasureRows(RowWidth(hadScrollbar));
             bool overflow = contentHeight > ClientSize.Height;
-            if (overflow) contentHeight = MeasureRows(Math.Max(1, available - SystemInformation.VerticalScrollBarWidth));
+            if (overflow != hadScrollbar) contentHeight = MeasureRows(RowWidth(overflow));
+            int RowWidth(bool narrow) => Math.Max(1, available - (narrow ? SystemInformation.VerticalScrollBarWidth : 0));
             viewportHeight = ClientSize.Height;
             scrollBar.Visible = overflow;
             scrollBar.Bounds = new Rectangle(Math.Max(0, ClientSize.Width - SystemInformation.VerticalScrollBarWidth),
@@ -149,6 +171,7 @@ internal sealed class MessageFeed : Panel
         {
             this.outgoing = outgoing;
             this.notice = notice;
+            DoubleBuffered = true;
             BackColor = Color.Transparent;
             bubble = new RoundedPanel { BackColor = notice ? Canvas : outgoing ? SentFill : ChatTheme.Raised };
             if (sender is not null && !outgoing)
