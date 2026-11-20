@@ -112,6 +112,8 @@ internal sealed class MessageFeed : Panel
         SuspendLayout();
         try
         {
+            int inset = Math.Max(18, Math.Min(72, ClientSize.Width / 20));
+            Padding = new Padding(inset, 12, inset, 12);
             int available = Math.Max(1, ClientSize.Width - Padding.Horizontal);
             bool hadScrollbar = contentHeight > viewportHeight;
             contentHeight = MeasureRows(RowWidth(hadScrollbar));
@@ -137,7 +139,7 @@ internal sealed class MessageFeed : Panel
         int MeasureRows(int width)
         {
             int height = Padding.Vertical;
-            foreach (MessageRow row in rows) { row.ResizeTo(width); height += row.Height + 8; }
+            foreach (MessageRow row in rows) { row.ResizeTo(width); height += row.Height + 4; }
             return height;
         }
     }
@@ -148,9 +150,73 @@ internal sealed class MessageFeed : Panel
         foreach (MessageRow row in rows)
         {
             row.Location = new Point(Padding.Left, y);
-            y += row.Height + 8;
+            y += row.Height + 4;
         }
         Invalidate(invalidateChildren: true);
+    }
+
+    private sealed class MessageText : Label
+    {
+        private readonly List<string> lines = [];
+        private const TextFormatFlags Flags = TextFormatFlags.NoPadding | TextFormatFlags.NoPrefix
+            | TextFormatFlags.SingleLine | TextFormatFlags.NoClipping;
+        private int lineHeight;
+        public int LastLineWidth { get; private set; }
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        internal string ClockText { get; set; } = "";
+        [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
+        internal Rectangle ClockBounds { get; set; }
+
+        public MessageText()
+        {
+            AutoSize = false;
+            UseMnemonic = false;
+            DoubleBuffered = true;
+        }
+
+        public Size MeasureContent(int maximumWidth)
+        {
+            lines.Clear();
+            lineHeight = TextRenderer.MeasureText("Ag", Font, Size.Empty, Flags).Height;
+            foreach (string paragraph in Text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
+            {
+                if (paragraph.Length == 0) { lines.Add(""); continue; }
+                int[] boundaries = System.Globalization.StringInfo.ParseCombiningCharacters(paragraph);
+                int start = 0;
+                while (start < boundaries.Length)
+                {
+                    int low = start + 1, high = boundaries.Length;
+                    while (low < high)
+                    {
+                        int middle = (low + high + 1) / 2;
+                        int end = middle < boundaries.Length ? boundaries[middle] : paragraph.Length;
+                        if (Measure(paragraph[boundaries[start]..end]) <= maximumWidth) low = middle;
+                        else high = middle - 1;
+                    }
+                    int stop = low;
+                    if (stop < boundaries.Length)
+                    {
+                        for (int at = stop - 1; at > start; at--)
+                            if (char.IsWhiteSpace(paragraph[boundaries[at]])) { stop = at + 1; break; }
+                    }
+                    int endIndex = stop < boundaries.Length ? boundaries[stop] : paragraph.Length;
+                    lines.Add(paragraph[boundaries[start]..endIndex].TrimEnd());
+                    start = stop;
+                }
+            }
+            LastLineWidth = Measure(lines[^1]);
+            return new Size(Math.Min(maximumWidth, lines.Max(Measure)), lines.Count * lineHeight);
+        }
+
+        private int Measure(string value) => value.Length == 0 ? 0
+            : TextRenderer.MeasureText(value, Font, Size.Empty, Flags).Width;
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            for (int index = 0; index < lines.Count; index++)
+                TextRenderer.DrawText(e.Graphics, lines[index], Font, new Point(0, index * lineHeight), ForeColor, Flags);
+            TextRenderer.DrawText(e.Graphics, ClockText, MetaFont, ClockBounds.Location, Muted, Flags);
+        }
     }
 
     private sealed class MessageRow : Panel
@@ -264,7 +330,9 @@ internal sealed class MessageFeed : Panel
                 bubble.Controls.Add(voiceCard);
             }
 
-            messageLabel = CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
+            messageLabel = attachment is null && recording is null && !notice
+                ? new MessageText { Text = message, Font = BodyFont, ForeColor = Ink }
+                : CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
             timeLabel = CreateLabel(time, MetaFont, Muted);
             messageLabel.Visible = timeLabel.Visible = voiceCard is null;
             bubble.Controls.AddRange([messageLabel, timeLabel]);
@@ -281,6 +349,37 @@ internal sealed class MessageFeed : Panel
             if (senderLabel is not null)
             {
                 PlaceLabel(senderLabel);
+            }
+
+            if (messageLabel is MessageText text)
+            {
+                int scale(int value) => Math.Max(1, (int)Math.Round(value * DeviceDpi / 96d));
+                int inset = scale(10);
+                int top = senderLabel is null ? scale(6) : y;
+                int limit = Math.Max(1, Math.Min(scale(860), width * 3 / 5) - inset * 2);
+                Size measured = text.MeasureContent(limit);
+                Size clock = TextRenderer.MeasureText(timeLabel.Text, MetaFont, Size.Empty,
+                    TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.NoPrefix);
+                int gap = scale(8);
+                bool hasTime = timeLabel.Text.Length > 0;
+                int contentWidth = Math.Max(measured.Width, senderLabel?.Width ?? 0);
+                if (hasTime)
+                    contentWidth = Math.Max(contentWidth, Math.Min(limit, text.LastLineWidth + gap + clock.Width));
+                bool shared = !hasTime || text.LastLineWidth + gap + clock.Width <= contentWidth;
+                int contentHeight = measured.Height + (shared ? 0 : clock.Height + scale(2));
+                int height = top + contentHeight + scale(6);
+                int textBubbleWidth = Math.Min(width, contentWidth + inset * 2);
+                text.Bounds = new Rectangle(inset, top, contentWidth, contentHeight);
+                if (senderLabel is not null) senderLabel.Left = inset;
+                timeLabel.Bounds = new Rectangle(textBubbleWidth - inset - clock.Width,
+                    top + contentHeight - clock.Height, clock.Width, clock.Height);
+                timeLabel.Visible = false;
+                text.ClockText = timeLabel.Text;
+                text.ClockBounds = new Rectangle(timeLabel.Left - inset, timeLabel.Top - top, clock.Width, clock.Height);
+                text.Invalidate();
+                Size = new Size(width, height);
+                bubble.Bounds = new Rectangle(outgoing ? width - textBubbleWidth : 0, 0, textBubbleWidth, height);
+                return;
             }
 
             if (voiceCard is not null)
