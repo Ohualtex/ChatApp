@@ -36,7 +36,17 @@ internal class RoundedPanel : Panel
 
     protected override void OnPaintBackground(PaintEventArgs e)
     {
-        e.Graphics.Clear(Parent?.BackColor ?? ChatTheme.Canvas);
+        if (Parent is { BackColor.A: 0 } parent)
+        {
+            var state = e.Graphics.Save();
+            e.Graphics.TranslateTransform(-Left, -Top);
+            var clip = e.ClipRectangle;
+            clip.Offset(Left, Top);
+            using var parentPaint = new PaintEventArgs(e.Graphics, clip);
+            InvokePaintBackground(parent, parentPaint);
+            e.Graphics.Restore(state);
+        }
+        else e.Graphics.Clear(Parent?.BackColor ?? ChatTheme.Canvas);
         if (Width < 1 || Height < 1) return;
         float diameter = Math.Min(capsule ? Height : 20, Math.Min(Width, Height));
         using var path = new GraphicsPath();

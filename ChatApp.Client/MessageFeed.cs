@@ -15,6 +15,8 @@ internal sealed class MessageFeed : Panel
     public MessageFeed()
     {
         Dock = DockStyle.Fill;
+        DoubleBuffered = true;
+        ResizeRedraw = true;
         AutoScroll = true;
         Padding = new Padding(18, 12, 18, 12);
         BackColor = Canvas;
@@ -22,19 +24,12 @@ internal sealed class MessageFeed : Panel
         viewportHeight = ClientSize.Height;
     }
 
-    protected override void OnPaintBackground(PaintEventArgs e)
+    protected override void OnPaintBackground(PaintEventArgs e) => ChatWallpaper.Paint(e.Graphics, ClientRectangle);
+
+    protected override void OnScroll(ScrollEventArgs se)
     {
-        base.OnPaintBackground(e);
-        using var line = new Pen(Color.FromArgb(30, 33, 32), 1);
-        for (int y = 24; y < Height; y += 110)
-        {
-            for (int x = 22; x < Width; x += 130)
-            {
-                e.Graphics.DrawArc(line, x, y, 36, 32, 0, 300);
-                e.Graphics.DrawLine(line, x + 2, y + 25, x - 2, y + 35);
-                e.Graphics.DrawLine(line, x - 2, y + 35, x + 11, y + 30);
-            }
-        }
+        base.OnScroll(se);
+        Invalidate(invalidateChildren: true);
     }
 
     public void ClearMessages()
@@ -47,6 +42,7 @@ internal sealed class MessageFeed : Panel
                 row.Dispose();
             }
             AutoScrollMinSize = Size.Empty;
+            Invalidate(invalidateChildren: true);
         }
         finally
         {
@@ -76,6 +72,7 @@ internal sealed class MessageFeed : Panel
         Controls.Add(row);
         LayoutRows();
         AutoScrollPosition = new Point(0, follow ? BottomOffset() : offset);
+        Invalidate(invalidateChildren: true);
     }
 
     protected override void OnSizeChanged(EventArgs e)
@@ -87,6 +84,7 @@ internal sealed class MessageFeed : Panel
         LayoutRows();
         PerformLayout();
         AutoScrollPosition = new Point(0, follow ? BottomOffset() : offset);
+        Invalidate(invalidateChildren: true);
     }
 
     private int BottomOffset() => Math.Max(0, AutoScrollMinSize.Height - ClientSize.Height);
@@ -130,6 +128,7 @@ internal sealed class MessageFeed : Panel
         {
             this.outgoing = outgoing;
             this.notice = notice;
+            BackColor = Color.Transparent;
             bubble = new RoundedPanel { BackColor = notice ? Canvas : outgoing ? SentFill : ChatTheme.Raised };
             if (sender is not null && !outgoing)
             {
