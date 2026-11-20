@@ -4,6 +4,7 @@ internal enum RecordingAction { Delete, Pause, Resume, Send, Microphone, Attach 
 
 internal sealed class RecordingButton : Button
 {
+    private static readonly Font AttachFont = new("Segoe MDL2 Assets", 22, FontStyle.Regular, GraphicsUnit.Pixel);
     private RecordingAction action;
     [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
     internal RecordingAction Action { get => action; set { action = value; Invalidate(); } }
@@ -58,20 +59,8 @@ internal sealed class RecordingButton : Button
                 e.Graphics.DrawLine(pen, x - 4, y + 12, x + 4, y + 12);
                 break;
             case RecordingAction.Attach:
-                using (var clip = new System.Drawing.Drawing2D.GraphicsPath())
-                {
-                    clip.AddLine(x + 6, y - 7, x + 6, y + 6);
-                    clip.AddBezier(x + 6, y + 6, x + 6, y + 13, x - 6, y + 13, x - 6, y + 6);
-                    clip.AddLine(x - 6, y + 6, x - 6, y - 6);
-                    clip.AddBezier(x - 6, y - 6, x - 6, y - 13, x + 3, y - 13, x + 3, y - 6);
-                    clip.AddLine(x + 3, y - 6, x + 3, y + 5);
-                    clip.AddBezier(x + 3, y + 5, x + 3, y + 9, x - 3, y + 9, x - 3, y + 5);
-                    clip.AddLine(x - 3, y + 5, x - 3, y - 5);
-                    using var tilt = new System.Drawing.Drawing2D.Matrix();
-                    tilt.RotateAt(35, new PointF(x, y));
-                    clip.Transform(tilt);
-                    e.Graphics.DrawPath(pen, clip);
-                }
+                TextRenderer.DrawText(e.Graphics, "\uE723", AttachFont, ClientRectangle, ink,
+                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 break;
             case RecordingAction.Delete:
                 e.Graphics.DrawLine(pen, x - 8, y - 7, x + 8, y - 7);
