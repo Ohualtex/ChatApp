@@ -647,7 +647,10 @@ internal sealed class ChatForm : Form
         bar.RowCount = 1;
         bar.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         bar.ColumnStyles[0] = new ColumnStyle(SizeType.Absolute, 44);
-        bar.ColumnStyles[3] = new ColumnStyle(SizeType.Absolute, 76);
+        send.AutoSize = true;
+        send.AutoSizeMode = AutoSizeMode.GrowAndShrink;
+        send.MinimumSize = new Size(76, 44);
+        bar.ColumnStyles[3] = new ColumnStyle(SizeType.AutoSize);
         bar.Controls.Add(attach, 0, 0);
         bar.Controls.Add(inputShell, 1, 0);
         voice.Margin = new Padding(0, 0, 4, 0);
