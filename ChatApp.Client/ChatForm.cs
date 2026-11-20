@@ -22,7 +22,9 @@ internal sealed class ChatForm : Form
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = true, Anchor = AnchorStyles.Left };
     private readonly Button connect = new() { Text = "Connect", AutoSize = true };
-    private readonly Button membersToggle = new() { Text = "General", AutoSize = true };
+    private readonly Label membersToggle = new() { Text = "General", AutoSize = true };
+    private readonly Button backToChats = new() { Text = "←", AccessibleName = "Back to chats", AutoSize = true };
+    private readonly Panel chatDivider = new() { Cursor = Cursors.VSplit, BackColor = ChatTheme.Raised };
     private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 320, BackColor = ChatTheme.Canvas };
     private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
     private readonly ListBox memberList = new()
@@ -30,9 +32,8 @@ internal sealed class ChatForm : Form
         Dock = DockStyle.Fill, BorderStyle = BorderStyle.None, IntegralHeight = false,
         BackColor = ChatTheme.Canvas, ForeColor = Ink, AccessibleName = "Conversations", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 76
     };
-    private readonly Button closeMembers = new() { Text = "×", AccessibleName = "Close members", Size = new Size(36, 36) };
     private readonly TextBox search = new() { PlaceholderText = "Search chats", Dock = DockStyle.Fill };
-    private readonly Button chatsNav = new() { Text = "\uE8F2", AccessibleName = "Toggle chats" };
+    private readonly Button chatsNav = new() { Text = "\uE8F2", AccessibleName = "Chats" };
     private readonly Button accountNav = new() { Text = "\uE77B", AccessibleName = "Account" };
     private readonly Button settingsNav = new() { Text = "\uE713", AccessibleName = "Settings" };
     private readonly ToolTip tips = new();
@@ -64,6 +65,10 @@ internal sealed class ChatForm : Form
     private Panel? chatArea;
     private Control? chatContent;
     private bool compactLayout;
+    private bool showingList = true;
+    private int preferredSidebarWidth = 320;
+    private bool layingOutColumns;
+    private int dividerGrabOffset;
 
     public ChatForm()
     {
@@ -78,20 +83,30 @@ internal sealed class ChatForm : Form
         Controls.Add(BuildLayout());
         chatsNav.Click += (_, _) =>
         {
-            if (settingsContent.Visible)
-            {
-                settingsContent.Visible = false;
-                chatsContent.Visible = true;
-                SetMembersDrawer(true);
-            }
-            else SetMembersDrawer(!membersDrawer.Visible);
+            settingsContent.Visible = false;
+            chatsContent.Visible = true;
+            SetMembersDrawer(true);
         };
+        backToChats.Click += (_, _) => SetMembersDrawer(true);
+        chatDivider.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left) return;
+            dividerGrabOffset = e.X;
+            chatDivider.Capture = true;
+        };
+        chatDivider.MouseMove += (_, _) =>
+        {
+            if (!chatDivider.Capture || chatArea is null) return;
+            int desired = chatArea.PointToClient(Cursor.Position).X - dividerGrabOffset;
+            preferredSidebarWidth = (int)Math.Round(ClampSidebarWidth(desired) * 96d / DeviceDpi);
+            LayoutChatColumns();
+        };
+        chatDivider.MouseUp += (_, _) => chatDivider.Capture = false;
         settingsNav.Click += (_, _) => ShowSettings();
         accountNav.Click += (_, _) => ShowSettings();
         search.TextChanged += (_, _) => RefreshConversationList();
         Shown += (_, _) => ChatTheme.DarkTitle(this);
         connect.Click += async (_, _) => await ConnectAndListenAsync();
-        membersToggle.Click += (_, _) => SetMembersDrawer(!membersDrawer.Visible);
         memberList.DrawItem += DrawConversation;
         memberList.SelectedIndexChanged += (_, _) =>
         {
@@ -100,7 +115,11 @@ internal sealed class ChatForm : Form
                 SelectConversation(chat);
             }
         };
-        closeMembers.Click += (_, _) => SetMembersDrawer(false);
+        memberList.MouseClick += (_, _) =>
+        {
+            if (compactLayout && memberList.SelectedItem is Conversation chat && !recordingBar.Active)
+                SelectConversation(chat);
+        };
         disconnect.Click += (_, _) => Disconnect("Disconnected");
         attach.Click += async (_, _) => await PickAttachmentAsync();
         voice.Click += (_, _) => StartVoiceRecording();
@@ -401,6 +420,12 @@ internal sealed class ChatForm : Form
             RefreshConversationList();
             return;
         }
+        if (ReferenceEquals(chat, selected))
+        {
+            selected.Unread = 0;
+            SetMembersDrawer(false);
+            return;
+        }
         selected.Draft = composer.Text;
         selected = chat;
         selected.Unread = 0;
@@ -413,6 +438,7 @@ internal sealed class ChatForm : Form
         }
         RefreshConversationList();
         RefreshControls();
+        SetMembersDrawer(false);
     }
 
     private void ShowSettings()
@@ -479,26 +505,10 @@ internal sealed class ChatForm : Form
         }
     }
 
-    protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
-    {
-        if (keyData == Keys.Escape && membersDrawer.Visible)
-        {
-            SetMembersDrawer(false);
-            return true;
-        }
-
-        return base.ProcessCmdKey(ref msg, keyData);
-    }
-
     private void SetMembersDrawer(bool open)
     {
-        membersDrawer.Visible = open;
+        showingList = open;
         LayoutChatColumns();
-        membersToggle.AccessibleName = open ? $"{selected.Title}, hide chats" : $"{selected.Title}, show chats";
-        if (!open && membersToggle.Enabled)
-        {
-            membersToggle.Focus();
-        }
     }
 
     private void RefreshControls()
@@ -511,6 +521,7 @@ internal sealed class ChatForm : Form
         login.Visible = !connected;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
+        LayoutChatColumns();
         chatsNav.Enabled = connected;
         if (normalComposerBar is not null) normalComposerBar.Visible = !recordingBar.Active;
         if (voiceComposerHost is not null) voiceComposerHost.Visible = recordingBar.Active;
@@ -527,18 +538,59 @@ internal sealed class ChatForm : Form
     protected override void OnClientSizeChanged(EventArgs e)
     {
         base.OnClientSizeChanged(e);
-        bool compact = ClientSize.Width < 850;
-        if (compact && !compactLayout && membersDrawer is not null)
-            membersDrawer.Visible = false;
-        compactLayout = compact;
         LayoutChatColumns();
+    }
+
+    private int ScaleLayout(int value) => (int)Math.Round(value * DeviceDpi / 96d);
+
+    private int ClampSidebarWidth(int desired)
+    {
+        int available = chatArea?.ClientSize.Width ?? 0;
+        int minimum = ScaleLayout(280);
+        int maximum = Math.Max(minimum, Math.Min(available / 2, available - ScaleLayout(365)));
+        return Math.Clamp(desired, minimum, maximum);
     }
 
     private void LayoutChatColumns()
     {
-        if (chatArea is null || chatContent is null) return;
-        membersDrawer.Width = ClientSize.Width < 850 ? chatArea.ClientSize.Width : 320;
-        chatContent.Visible = ClientSize.Width >= 850 || !membersDrawer.Visible;
+        if (chatArea is null || chatContent is null || layingOutColumns) return;
+        layingOutColumns = true;
+        chatArea.SuspendLayout();
+        try
+        {
+            int width = chatArea.ClientSize.Width;
+            int height = chatArea.ClientSize.Height;
+            bool compact = width < ScaleLayout(280 + 5 + 360);
+            if (compact && !compactLayout)
+                showingList = settingsContent.Visible || connection is null || connecting;
+            compactLayout = compact;
+            bool connected = connection is not null && !connecting;
+            bool listOnly = compact && (settingsContent.Visible || (connected && showingList));
+            membersDrawer.Visible = !compact || listOnly;
+            chatContent.Visible = !compact || !listOnly;
+            chatDivider.Visible = !compact;
+            backToChats.Visible = compact && !listOnly && connected;
+            if (compact)
+            {
+                chatDivider.Capture = false;
+                membersDrawer.Bounds = new Rectangle(0, 0, width, height);
+                chatContent.Bounds = new Rectangle(0, 0, width, height);
+            }
+            else
+            {
+                int sidebarWidth = ClampSidebarWidth(ScaleLayout(preferredSidebarWidth));
+                int dividerWidth = ScaleLayout(5);
+                membersDrawer.Bounds = new Rectangle(0, 0, sidebarWidth, height);
+                chatDivider.Bounds = new Rectangle(sidebarWidth, 0, dividerWidth, height);
+                chatContent.Bounds = new Rectangle(sidebarWidth + dividerWidth, 0,
+                    Math.Max(0, width - sidebarWidth - dividerWidth), height);
+            }
+        }
+        finally
+        {
+            chatArea.ResumeLayout(performLayout: false);
+            layingOutColumns = false;
+        }
     }
 
     private Control BuildLayout()
@@ -554,14 +606,16 @@ internal sealed class ChatForm : Form
         tips.SetToolTip(voice, "Record a voice message");
         tips.SetToolTip(send, "Send message");
         StyleButton(disconnect, primary: false);
-        StyleButton(membersToggle, primary: false);
+        StyleButton(backToChats, primary: false);
+        backToChats.Padding = Padding.Empty;
+        backToChats.Margin = new Padding(0, 0, 8, 0);
+        backToChats.Visible = false;
+        backToChats.Anchor = AnchorStyles.Left;
         membersToggle.Font = TitleFont;
         membersToggle.BackColor = ChatTheme.Surface;
         membersToggle.Padding = Padding.Empty;
-        membersToggle.AccessibleName = "General, show chats";
+        membersToggle.AccessibleName = "Conversation name";
         membersToggle.Anchor = AnchorStyles.Left;
-        StyleButton(closeMembers, primary: false);
-        closeMembers.Padding = Padding.Empty;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
@@ -597,25 +651,27 @@ internal sealed class ChatForm : Form
 
         var header = new TableLayoutPanel
         {
-            Dock = DockStyle.Fill, ColumnCount = 4, Margin = Padding.Empty,
+            Dock = DockStyle.Fill, ColumnCount = 5, Margin = Padding.Empty,
             Padding = new Padding(18, 8, 16, 8), BackColor = ChatTheme.Surface
         };
+        header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
+        header.Controls.Add(backToChats, 0, 0);
         header.Controls.Add(new PictureBox
         {
             Image = Logo, Size = new Size(34, 34), SizeMode = PictureBoxSizeMode.Zoom,
             Anchor = AnchorStyles.Left, Margin = new Padding(0, 0, 8, 0)
-        }, 0, 0);
-        header.Controls.Add(membersToggle, 1, 0);
+        }, 1, 0);
+        header.Controls.Add(membersToggle, 2, 0);
         status.Margin = new Padding(8, 0, 12, 0);
-        header.Controls.Add(status, 2, 0);
+        header.Controls.Add(status, 3, 0);
         disconnect.Anchor = AnchorStyles.Right;
         disconnect.Margin = Padding.Empty;
         membersToggle.Margin = new Padding(4, 0, 8, 0);
-        header.Controls.Add(disconnect, 3, 0);
+        header.Controls.Add(disconnect, 4, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
         login = BuildLogin();
@@ -671,8 +727,11 @@ internal sealed class ChatForm : Form
         chatArea = main;
         chatContent = right;
         main.SizeChanged += (_, _) => LayoutChatColumns();
+        right.Dock = DockStyle.None;
+        membersDrawer.Dock = DockStyle.None;
         main.Controls.Add(right);
         main.Controls.Add(membersDrawer);
+        main.Controls.Add(chatDivider);
         layout.Controls.Add(rail, 0, 0);
         layout.Controls.Add(main, 1, 0);
         StyleInput(composer);
@@ -709,9 +768,7 @@ internal sealed class ChatForm : Form
         layout.RowStyles.Add(new RowStyle(SizeType.Absolute, 26));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = TitleFont, Anchor = AnchorStyles.Left }, 0, 0);
-        closeMembers.Anchor = AnchorStyles.Right;
-        closeMembers.Margin = Padding.Empty;
-        layout.Controls.Add(closeMembers, 1, 0);
+
         StyleInput(search);
         search.Margin = new Padding(0, 7, 0, 7);
         search.Dock = DockStyle.None;
