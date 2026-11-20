@@ -10,44 +10,48 @@ internal sealed class MessageFeed : Panel
     private static readonly Font MetaFont = new("Segoe UI", 8);
     private static readonly Font SenderFont = new("Segoe UI", 9, FontStyle.Bold);
 
+    private readonly VScrollBar scrollBar = new() { Visible = false, SmallChange = 24, TabStop = false };
+    private readonly List<MessageRow> rows = [];
     private int viewportHeight;
+    private int contentHeight;
+    private int wheelRemainder;
+    private bool arranging;
+    private int BottomOffset => Math.Max(0, contentHeight - Math.Max(1, viewportHeight));
+    private bool FollowingNewest => scrollBar.Value >= BottomOffset - 3;
 
     public MessageFeed()
     {
         Dock = DockStyle.Fill;
         DoubleBuffered = true;
         ResizeRedraw = true;
-        AutoScroll = true;
+        AutoScroll = false;
         Padding = new Padding(18, 12, 18, 12);
         BackColor = Canvas;
         AccessibleName = "Chat messages";
         viewportHeight = ClientSize.Height;
+        Controls.Add(scrollBar);
+        scrollBar.ValueChanged += (_, _) => { if (!arranging) PositionRows(); };
     }
 
     protected override void OnPaintBackground(PaintEventArgs e) => ChatWallpaper.Paint(e.Graphics, ClientRectangle);
 
-    protected override void OnScroll(ScrollEventArgs se)
+    protected override void OnMouseWheel(MouseEventArgs e)
     {
-        base.OnScroll(se);
-        Invalidate(invalidateChildren: true);
+        if (!scrollBar.Visible) return;
+        wheelRemainder += e.Delta;
+        int notches = wheelRemainder / SystemInformation.MouseWheelScrollDelta;
+        wheelRemainder %= SystemInformation.MouseWheelScrollDelta;
+        int lines = SystemInformation.MouseWheelScrollLines;
+        int amount = lines < 0 ? scrollBar.LargeChange : Math.Max(0, lines) * scrollBar.SmallChange;
+        scrollBar.Value = Math.Clamp(scrollBar.Value - notches * amount, 0, BottomOffset);
     }
 
     public void ClearMessages()
     {
-        SuspendLayout();
-        try
-        {
-            foreach (Control row in Controls.Cast<Control>().ToArray())
-            {
-                row.Dispose();
-            }
-            AutoScrollMinSize = Size.Empty;
-            Invalidate(invalidateChildren: true);
-        }
-        finally
-        {
-            ResumeLayout();
-        }
+        foreach (MessageRow row in rows) row.Dispose();
+        rows.Clear();
+        wheelRemainder = 0;
+        LayoutRows(follow: true);
     }
 
     public void AddMessage(string sender, string text, DateTimeOffset? timestamp, bool outgoing)
@@ -67,47 +71,64 @@ internal sealed class MessageFeed : Panel
 
     private void AddRow(MessageRow row)
     {
-        int offset = -AutoScrollPosition.Y;
-        bool follow = offset >= BottomOffset() - 3;
+        bool follow = FollowingNewest;
+        rows.Add(row);
         Controls.Add(row);
-        LayoutRows();
-        AutoScrollPosition = new Point(0, follow ? BottomOffset() : offset);
-        Invalidate(invalidateChildren: true);
+        LayoutRows(follow);
     }
 
     protected override void OnSizeChanged(EventArgs e)
     {
-        int offset = -AutoScrollPosition.Y;
-        bool follow = offset >= Math.Max(0, AutoScrollMinSize.Height - viewportHeight) - 3;
+        bool follow = scrollBar is null || FollowingNewest;
         base.OnSizeChanged(e);
-        viewportHeight = ClientSize.Height;
-        LayoutRows();
-        PerformLayout();
-        AutoScrollPosition = new Point(0, follow ? BottomOffset() : offset);
-        Invalidate(invalidateChildren: true);
+        if (scrollBar is not null) LayoutRows(follow);
     }
 
-    private int BottomOffset() => Math.Max(0, AutoScrollMinSize.Height - ClientSize.Height);
-
-    private void LayoutRows()
+    private void LayoutRows(bool follow)
     {
-        int width = Math.Max(1, ClientSize.Width - Padding.Horizontal - SystemInformation.VerticalScrollBarWidth);
-        int y = Padding.Top;
+        if (arranging) return;
+        arranging = true;
+        int previousOffset = scrollBar.Value;
         SuspendLayout();
         try
         {
-            foreach (MessageRow row in Controls)
-            {
-                row.ResizeTo(width);
-                row.Location = new Point(Padding.Left, y + AutoScrollPosition.Y);
-                y += row.Height + 8;
-            }
-            AutoScrollMinSize = new Size(0, y + Padding.Bottom);
+            int available = Math.Max(1, ClientSize.Width - Padding.Horizontal);
+            contentHeight = MeasureRows(available);
+            bool overflow = contentHeight > ClientSize.Height;
+            if (overflow) contentHeight = MeasureRows(Math.Max(1, available - SystemInformation.VerticalScrollBarWidth));
+            viewportHeight = ClientSize.Height;
+            scrollBar.Visible = overflow;
+            scrollBar.Bounds = new Rectangle(Math.Max(0, ClientSize.Width - SystemInformation.VerticalScrollBarWidth),
+                0, SystemInformation.VerticalScrollBarWidth, ClientSize.Height);
+            scrollBar.Maximum = Math.Max(0, contentHeight - 1);
+            scrollBar.LargeChange = Math.Max(1, viewportHeight);
+            scrollBar.Value = follow ? BottomOffset : Math.Min(previousOffset, BottomOffset);
+            scrollBar.BringToFront();
+            PositionRows();
         }
         finally
         {
-            ResumeLayout();
+            ResumeLayout(performLayout: false);
+            arranging = false;
         }
+
+        int MeasureRows(int width)
+        {
+            int height = Padding.Vertical;
+            foreach (MessageRow row in rows) { row.ResizeTo(width); height += row.Height + 8; }
+            return height;
+        }
+    }
+
+    private void PositionRows()
+    {
+        int y = Padding.Top - scrollBar.Value;
+        foreach (MessageRow row in rows)
+        {
+            row.Location = new Point(Padding.Left, y);
+            y += row.Height + 8;
+        }
+        Invalidate(invalidateChildren: true);
     }
 
     private sealed class MessageRow : Panel
