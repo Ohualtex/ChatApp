@@ -16,6 +16,10 @@ internal sealed class MessageFeed : Panel
     private int contentHeight;
     private int wheelRemainder;
     private bool arranging;
+    private string? previousSender;
+    private DateTimeOffset? previousTimestamp;
+    private bool previousOutgoing;
+    private DateOnly? displayedDate;
     private int BottomOffset => Math.Max(0, contentHeight - Math.Max(1, viewportHeight));
     private bool FollowingNewest => scrollBar.Value >= BottomOffset - 3;
 
@@ -66,33 +70,68 @@ internal sealed class MessageFeed : Panel
     {
         foreach (MessageRow row in rows) row.Dispose();
         rows.Clear();
+        previousSender = null;
+        previousTimestamp = null;
+        displayedDate = null;
         wheelRemainder = 0;
         LayoutRows(follow: true);
     }
 
     public void AddMessage(string sender, string text, DateTimeOffset? timestamp, bool outgoing)
+        => AddEntry(sender, text, timestamp, outgoing, showSender: true);
+
+    public void AddPacket(ChatPacket packet, bool outgoing, bool showSender = true)
+        => AddEntry(packet.Name, packet.Message ?? "", packet.Timestamp, outgoing, showSender,
+            packet.Attachment, packet.Recording);
+
+    private void AddEntry(string? sender, string text, DateTimeOffset? timestamp, bool outgoing,
+        bool showSender, ChatAttachment? attachment = null, VoiceClip? recording = null)
     {
-        string time = timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
-        AddRow(new MessageRow(outgoing ? null : sender, text, time, outgoing));
+        DateTimeOffset? local = timestamp?.ToLocalTime();
+        DateOnly? date = local.HasValue ? DateOnly.FromDateTime(local.Value.DateTime) : null;
+        bool startsDay = date.HasValue && displayedDate != date;
+        TimeSpan? elapsed = timestamp - previousTimestamp;
+        bool grouped = !startsDay && sender is not null && sender == previousSender
+            && outgoing == previousOutgoing && date.HasValue && previousTimestamp.HasValue
+            && DateOnly.FromDateTime(previousTimestamp.Value.ToLocalTime().DateTime) == date
+            && elapsed >= TimeSpan.Zero && elapsed <= TimeSpan.FromMinutes(5);
+        var additions = new List<MessageRow>();
+        if (startsDay)
+        {
+            DateOnly today = DateOnly.FromDateTime(DateTime.Now);
+            string title = date == today ? "Today" : date == today.AddDays(-1) ? "Yesterday"
+                : date!.Value.ToString("dd MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+            additions.Add(new MessageRow(null, title, "", outgoing: false, notice: true) { LeadingGap = 8 });
+        }
+        additions.Add(new MessageRow(sender, text,
+            local?.ToString("HH:mm") ?? "", outgoing, attachment: attachment, recording: recording, showSender: showSender && !grouped)
+            { LeadingGap = grouped ? 4 : 12 });
+        AddRows(additions);
+        previousSender = sender;
+        previousTimestamp = timestamp;
+        previousOutgoing = outgoing;
+        if (date.HasValue) displayedDate = date;
     }
 
-    public void AddPacket(ChatPacket packet, bool outgoing)
+    public void AddNotice(string text)
     {
-        string time = packet.Timestamp?.ToLocalTime().ToString("HH:mm") ?? "";
-        AddRow(new MessageRow(packet.Name, packet.Message ?? "", time, outgoing,
-            attachment: packet.Attachment, recording: packet.Recording));
+        AddRows([new MessageRow(null, text, "", outgoing: false, notice: true) { LeadingGap = 12 }]);
+        previousSender = null;
+        previousTimestamp = null;
     }
 
-    public void AddNotice(string text) => AddRow(new MessageRow(null, text, "", outgoing: false, notice: true));
-
-    private void AddRow(MessageRow row)
+    private void AddRows(IEnumerable<MessageRow> additions)
     {
         bool follow = FollowingNewest;
-        row.Visible = false;
-        rows.Add(row);
-        Controls.Add(row);
+        var pending = additions.ToArray();
+        foreach (MessageRow row in pending)
+        {
+            row.Visible = false;
+            rows.Add(row);
+            Controls.Add(row);
+        }
         LayoutRows(follow);
-        row.Visible = true;
+        foreach (MessageRow row in pending) row.Visible = true;
         Invalidate(invalidateChildren: true);
         Update();
     }
@@ -139,7 +178,7 @@ internal sealed class MessageFeed : Panel
         int MeasureRows(int width)
         {
             int height = Padding.Vertical;
-            foreach (MessageRow row in rows) { row.ResizeTo(width); height += row.Height + 4; }
+            foreach (MessageRow row in rows) { row.ResizeTo(width); height += row.Height + row.LeadingGap; }
             return height;
         }
     }
@@ -149,8 +188,9 @@ internal sealed class MessageFeed : Panel
         int y = Padding.Top - scrollBar.Value;
         foreach (MessageRow row in rows)
         {
+            y += row.LeadingGap;
             row.Location = new Point(Padding.Left, y);
-            y += row.Height + 4;
+            y += row.Height;
         }
         Invalidate(invalidateChildren: true);
     }
@@ -221,6 +261,7 @@ internal sealed class MessageFeed : Panel
 
     private sealed class MessageRow : Panel
     {
+        public int LeadingGap = 4;
         private readonly Panel bubble;
         private readonly Label? senderLabel;
         private readonly Label messageLabel;
@@ -233,14 +274,14 @@ internal sealed class MessageFeed : Panel
         private readonly bool outgoing;
         private readonly bool notice;
 
-        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null, VoiceClip? recording = null)
+        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null, VoiceClip? recording = null, bool showSender = true)
         {
             this.outgoing = outgoing;
             this.notice = notice;
             DoubleBuffered = true;
             BackColor = Color.Transparent;
             bubble = new RoundedPanel { BackColor = notice ? Canvas : outgoing ? SentFill : ChatTheme.Raised };
-            if (sender is not null && !outgoing)
+            if (showSender && sender is not null && !outgoing)
             {
                 senderLabel = CreateLabel(sender, SenderFont, Ink);
                 bubble.Controls.Add(senderLabel);
@@ -334,7 +375,8 @@ internal sealed class MessageFeed : Panel
                 ? new MessageText { Text = message, Font = BodyFont, ForeColor = Ink }
                 : CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
             timeLabel = CreateLabel(time, MetaFont, Muted);
-            messageLabel.Visible = timeLabel.Visible = voiceCard is null;
+            messageLabel.Visible = voiceCard is null;
+            timeLabel.Visible = voiceCard is null && time.Length > 0;
             bubble.Controls.AddRange([messageLabel, timeLabel]);
             Controls.Add(bubble);
         }
@@ -346,7 +388,7 @@ internal sealed class MessageFeed : Panel
             int textLimit = Math.Max(1, Math.Min(520, width * 3 / 4) - horizontalPadding * 2);
             int y = verticalPadding;
             int textWidth = 0;
-            if (senderLabel is not null)
+            if (senderLabel is not null && !outgoing)
             {
                 PlaceLabel(senderLabel);
             }

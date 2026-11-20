@@ -404,7 +404,7 @@ internal sealed class ChatForm : Form
         chat.Messages.Add(packet);
         if (ReferenceEquals(chat, selected))
         {
-            messages.AddPacket(packet, outgoing);
+            messages.AddPacket(packet, outgoing, showSender: selected.Peer is null);
         }
         else if (!outgoing)
         {
@@ -434,7 +434,7 @@ internal sealed class ChatForm : Form
         messages.ClearMessages();
         foreach (ChatPacket packet in selected.Messages)
         {
-            messages.AddPacket(packet, packet.Name == joinedName);
+            messages.AddPacket(packet, packet.Name == joinedName, showSender: selected.Peer is null);
         }
         RefreshConversationList();
         RefreshControls();
