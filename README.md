@@ -9,7 +9,7 @@ A dark-themed Windows desktop messenger built with C# and an Elixir TCP server. 
 - **Message groups and date separators**, with compact timestamps and wrapping for long messages.
 - **File sharing** through the paperclip button or drag and drop. Dropped files are reviewed before sending; remove unwanted or invalid entries, then choose **Send**, or cancel with **Esc**.
 - **Attachment cards** showing the file name, type and size, with **Open** for supported types and **Save as…**.
-- **Image previews** with an in-app viewer. Zoom with the mouse wheel or **+ / −**, drag a zoomed image to pan, and fit it to the window using the percentage button, **Home** or **Ctrl+0**. **Esc** closes the viewer.
+- **Image gallery** covering the application window, with previous/next arrows, a thumbnail strip and a green outline around the selected image. Zoom, pan, save the current image, or close the viewer to return to the conversation.
 - **Voice messages** with microphone recording, pause/resume, discard and send controls. Received messages have inline playback, waveform progress and a save option in the context menu.
 - **Consistent button feedback** and a fixed doodle wallpaper that stays in place while messages scroll and the window is resized.
 
@@ -50,13 +50,27 @@ dotnet build ChatApp.Client/ChatApp.Client.csproj
 1. Select **General** to message everyone connected to the server, or select a person for a private conversation.
 2. Type a message and press **Enter** or click the send icon. The microphone button appears when the text field is empty.
 3. Use the paperclip to select a file, or drop one or more files onto the open conversation. Dragged files open a review window and are sent only after confirmation.
-4. Click the microphone to record. Pause or resume as needed, discard with the trash button, or send with the green arrow. Recording has no fixed time cutoff; WAV format limits and available disk space still apply.
-5. Drag the divider to resize the sidebar. On narrow windows, use the back arrow to return to the chat list and select a conversation to reopen it.
-6. Open **Settings** from the gear at the bottom of the navigation rail to disconnect or view the current connection details.
+4. Click an image to open the gallery in the same window. Use the side arrows or thumbnails to browse images from that conversation. The toolbar provides zoom, fit, save and close controls.
+5. Click the microphone to record. Pause or resume as needed, discard with the trash button, or send with the green arrow. Recording has no fixed time cutoff; WAV format limits and available disk space still apply.
+6. Drag the divider to resize the sidebar. On narrow windows, use the back arrow to return to the chat list and select a conversation to reopen it.
+7. Open **Settings** from the gear at the bottom of the navigation rail to disconnect or view the current connection details.
 
 File attachments must be non-empty and no larger than **10 MB each**. Folders are not sent. Drag-and-drop preparation is unavailable while recording or sending. A dropped batch is sent sequentially; an error stops the remaining files and reports how many were sent.
 
 If a person goes offline, their conversation remains visible, but sending is disabled until they reconnect with the same display name. Reconnecting your own client starts a fresh local session.
+
+### Image viewer controls
+
+| Action | Control |
+| --- | --- |
+| Zoom in or out | Mouse wheel, toolbar magnifiers, or **+ / −** |
+| Pan a zoomed image | Drag the image or use the arrow keys |
+| Fit the image to the window | Fit icon, **Home**, or **Ctrl+0** |
+| Browse conversation images | Side arrows, thumbnails, or **Page Up / Page Down**; **Left / Right** also browse while the image is fitted |
+| Save the displayed image | Download icon in the toolbar |
+| Return to the conversation | Close icon or **Esc** |
+
+Switching images resets the zoom. Closing the viewer preserves the conversation, draft and scroll position. The gallery uses the images available in that conversation when it was opened.
 
 ## Run on a local network
 
@@ -80,32 +94,40 @@ If the port is already in use, reuse the existing ChatApp server or choose anoth
 
 ## Project structure
 
-| Path | Responsibility |
-| --- | --- |
-| `ChatApp.Client/Program.cs` | Windows application entry point |
-| `ChatApp.Client/ChatForm.cs` | Connection, conversations and responsive window layout |
-| `ChatApp.Client/ChatForm.Attachments.cs` | Drag-and-drop targets, review flow and sequential sending |
-| `ChatApp.Client/ChatConnection.cs` | TCP connection, JSON packets and voice transfer |
-| `ChatApp.Client/Conversation.cs` | Per-conversation history, draft, presence and unread count |
-| `ChatApp.Client/MessageFeed.cs`, `MessageScrollBar.cs` | Message layout, grouping, dates and scrolling |
-| `ChatApp.Client/ChatAttachment.cs`, `AttachmentCandidate.cs` | File encoding, metadata and validation |
-| `ChatApp.Client/AttachmentDropOverlay.cs`, `AttachmentReviewDialog.cs` | Drop target and attachment preparation UI |
-| `ChatApp.Client/FileAttachmentCard.cs`, `ImageMessageCard.cs`, `VoiceMessageCard.cs` | Attachment and media cards |
-| `ChatApp.Client/ImageViewer.cs`, `ZoomImageCanvas.cs` | Full image display, zoom and pan |
-| `ChatApp.Client/MicrophoneRecorder.cs`, `WaveInput.cs`, `VoiceAudio.cs` | Microphone capture, WAV handling and playback |
-| `ChatApp.Client/VoiceRecordingBar.cs`, `VoiceLevel.cs`, `RecordingButton.cs` | Recording controls and live level display |
-| `ChatApp.Client/InteractiveButton.cs`, `InteractionFeedback.cs`, `NavigationButton.cs` | Button states, navigation and keyboard focus styling |
-| `ChatApp.Client/ChatTheme.cs`, `ChatWallpaper.cs`, `ConversationAvatar.cs` | Theme, fixed wallpaper and conversation avatars |
-| `ChatApp.Client/Assets/` | Embedded application icon and wallpaper |
-| `server/lib/chat_app.ex` | Listener, connections, room membership and message routing |
-| `docs/` | README icon and application screenshots |
+```text
+ChatApp/
+├── ChatApp.Client/
+│   ├── Assets/             # Embedded application icon and wallpaper
+│   ├── Models/             # Conversations, attachments and gallery data
+│   ├── Networking/         # TCP connection, JSON packets and voice transfer
+│   ├── Audio/              # Microphone capture, WAV handling and playback
+│   ├── UI/
+│   │   ├── Forms/          # Main window, attachment flow and gallery hosting
+│   │   ├── Controls/       # Shared buttons, interaction states and avatars
+│   │   ├── Messages/       # Message feed, scrolling and attachment cards
+│   │   ├── Attachments/    # Drop overlay and attachment review dialog
+│   │   ├── Images/         # Image viewer, thumbnails, zoom and pan
+│   │   ├── Voice/          # Recording bar, level display and audio controls
+│   │   └── Theme/          # Colors and fixed wallpaper rendering
+│   ├── Program.cs          # Windows application entry point
+│   └── ChatApp.Client.csproj
+├── server/
+│   ├── lib/chat_app.ex     # Listener, connections, membership and routing
+│   └── mix.exs
+├── docs/
+│   ├── icon.png            # README heading icon
+│   └── screenshots/
+├── ChatApp.slnx
+├── .gitignore
+└── README.md
+```
 
 ## Current limitations and data handling
 
 - Display names identify users for the session; there are no authenticated accounts. The server listens on loopback by default, and the TCP connection is **unencrypted**.
 - Conversation histories and drafts are kept in client memory and reset on reconnection or exit. The server does not persist message history; its console logs connection activity.
 - Voice recording and playback use Windows APIs. Microphone access must be allowed in Windows settings. Recordings, incoming voice messages and files opened in another application can create temporary files; saving an attachment creates a copy at the chosen location.
-- In-app file previews cover supported images. Documents and videos use file cards and external applications rather than embedded document rendering or video playback. The image viewer displays one image at a time.
+- In-app file previews cover supported images. Documents and videos use file cards and external applications rather than embedded document rendering or video playback.
 
 ## Screenshots
 
