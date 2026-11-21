@@ -13,6 +13,7 @@ internal sealed class ImageMessageCard : Control
     private readonly DateTimeOffset? timestamp;
     private readonly ContextMenuStrip menu = new();
     private Rectangle imageBounds, clockBounds;
+    private readonly InteractionFeedback interaction;
 
     private ImageMessageCard(ChatAttachment attachment, byte[] bytes, Bitmap preview, Size sourceSize,
         string sender, string time, DateTimeOffset? timestamp)
@@ -24,6 +25,7 @@ internal sealed class ImageMessageCard : Control
         this.sender = sender;
         this.time = time;
         this.timestamp = timestamp;
+        interaction = new InteractionFeedback(this);
         DoubleBuffered = true;
         ResizeRedraw = true;
         SetStyle(ControlStyles.Selectable, true);
@@ -89,6 +91,11 @@ internal sealed class ImageMessageCard : Control
         e.Graphics.SetClip(clip);
         e.Graphics.InterpolationMode = InterpolationMode.HighQualityBicubic;
         e.Graphics.DrawImage(preview, imageBounds);
+        if (interaction.Hovered || interaction.Pressed)
+        {
+            using var overlay = new SolidBrush(interaction.Pressed ? Color.FromArgb(32, 0, 0, 0) : Color.FromArgb(14, 255, 255, 255));
+            e.Graphics.FillRectangle(overlay, ClientRectangle);
+        }
         if (time.Length > 0)
         {
             Rectangle shade = Rectangle.Inflate(clockBounds, 4, 2);
@@ -97,24 +104,28 @@ internal sealed class ImageMessageCard : Control
             TextRenderer.DrawText(e.Graphics, time, ClockFont, clockBounds, Color.White,
                 TextFormatFlags.NoPadding | TextFormatFlags.SingleLine | TextFormatFlags.Right);
         }
+        if (Focused && ShowFocusCues && Enabled)
+        {
+            using var outline = new Pen(ChatTheme.Accent, Math.Max(2, DeviceDpi / 48f));
+            e.Graphics.DrawPath(outline, clip);
+        }
         e.Graphics.Restore(state);
-        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, ClientRectangle, ChatTheme.Ink, BackColor);
     }
 
     protected override void OnMouseClick(MouseEventArgs e)
     {
         base.OnMouseClick(e);
-        if (e.Button == MouseButtons.Left) OpenViewer();
+        if (Enabled && e.Button == MouseButtons.Left) OpenViewer();
     }
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
-        if (e.KeyCode is Keys.Enter or Keys.Space)
+        base.OnKeyDown(e);
+        if (Enabled && (e.KeyCode is Keys.Enter or Keys.Space))
         {
             e.Handled = e.SuppressKeyPress = true;
             OpenViewer();
         }
-        else base.OnKeyDown(e);
     }
 
     private void OpenViewer()

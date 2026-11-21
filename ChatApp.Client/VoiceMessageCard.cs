@@ -13,40 +13,33 @@ internal sealed class VoiceMessageCard : Control
     private readonly VoicePlayback playback = new();
     private readonly System.Windows.Forms.Timer timer = new() { Interval = 80 };
     private readonly ContextMenuStrip menu = new();
-    private Rectangle PlayArea => new(46, 0, 40, 46);
+    private readonly PlaybackButton playButton;
 
     public VoiceMessageCard(VoiceClip clip, string sender, string time)
     {
         this.clip = clip; this.sender = sender; this.time = time;
         peaks = ReadPeaks(clip);
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.ResizeRedraw, true);
-        TabStop = true;
-        AccessibleRole = AccessibleRole.PushButton;
+        TabStop = false;
+        AccessibleRole = AccessibleRole.Grouping;
+        playButton = new PlaybackButton(() => playback.Playing)
+        {
+            Bounds = new Rectangle(46, 0, 40, 46), AccessibleName = $"Play voice message from {sender}"
+        };
+        playButton.Click += (_, _) => TogglePlayback();
+        Controls.Add(playButton);
         AccessibleName = $"Voice message from {sender}, {WaveAudio.FormatTime(clip.Duration)}. Play";
         timer.Tick += (_, _) => Invalidate();
         playback.Changed += () =>
         {
             if (playback.Playing) timer.Start(); else timer.Stop();
-            AccessibleName = $"Voice message from {sender}. {(playback.Playing ? "Pause" : "Play")}";
+            playButton.AccessibleName = $"{(playback.Playing ? "Pause" : "Play")} voice message from {sender}";
+            playButton.Invalidate();
             Invalidate();
         };
         menu.Items.Add("Save audio...", null, async (_, _) => await SaveAsync());
         ContextMenuStrip = menu;
-    }
-
-    protected override void OnMouseClick(MouseEventArgs e)
-    {
-        base.OnMouseClick(e);
-        if (e.Button == MouseButtons.Left && PlayArea.Contains(e.Location)) TogglePlayback();
-    }
-
-    protected override void OnMouseMove(MouseEventArgs e)
-    { base.OnMouseMove(e); Cursor = PlayArea.Contains(e.Location) ? Cursors.Hand : Cursors.Default; }
-
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        if (e.KeyCode is Keys.Space or Keys.Enter) { e.SuppressKeyPress = true; TogglePlayback(); }
-        base.OnKeyDown(e);
+        playButton.ContextMenuStrip = menu;
     }
 
     private void TogglePlayback()
@@ -70,12 +63,6 @@ internal sealed class VoiceMessageCard : Control
         string initial = string.IsNullOrEmpty(sender) ? "?" : System.Globalization.StringInfo.GetNextTextElement(sender).ToUpperInvariant();
         TextRenderer.DrawText(g, initial, AvatarFont, new Rectangle(0, 5, 40, 40), ChatTheme.Ink,
             TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPrefix);
-        using var ink = new SolidBrush(ChatTheme.Ink);
-        if (playback.Playing)
-        {
-            g.FillRectangle(ink, 59, 16, 4, 16); g.FillRectangle(ink, 67, 16, 4, 16);
-        }
-        else g.FillPolygon(ink, [new PointF(59, 15), new PointF(72, 24), new PointF(59, 33)]);
         var wave = new Rectangle(94, 9, Math.Max(1, Width - 104), 30);
         double fraction = clip.Duration.TotalSeconds > 0 ? playback.Position.TotalSeconds / clip.Duration.TotalSeconds : 0;
         using var future = new Pen(Color.FromArgb(103, 154, 143), 3) { StartCap = LineCap.Round, EndCap = LineCap.Round };
@@ -93,7 +80,35 @@ internal sealed class VoiceMessageCard : Control
         TimeSpan shown = playback.Playing || playback.Paused ? playback.Position : clip.Duration;
         TextRenderer.DrawText(g, WaveAudio.FormatTime(shown), MetaFont, new Rectangle(94, 45, Math.Max(1, Width - 150), 20), Progress, TextFormatFlags.Left);
         TextRenderer.DrawText(g, time, MetaFont, new Rectangle(Math.Max(0, Width - 54), 45, 54, 20), ChatTheme.Muted, TextFormatFlags.Right);
-        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(g, PlayArea, ChatTheme.Muted, BackColor);
+    }
+
+    private sealed class PlaybackButton(Func<bool> playing) : InteractiveButton
+    {
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            e.Graphics.Clear(Parent?.BackColor ?? ChatTheme.Raised);
+            e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+            float x = Width / 2f, y = Height / 2f;
+            var circle = new RectangleF(x - 17, y - 17, 34, 34);
+            if (Hovered || Pressed || KeyboardFocused)
+            {
+                using var fill = new SolidBrush(Pressed ? Color.FromArgb(24, 42, 35) : Color.FromArgb(65, 89, 80));
+                e.Graphics.FillEllipse(fill, circle);
+            }
+            if (KeyboardFocused)
+            {
+                using var pen = new Pen(ChatTheme.Muted);
+                e.Graphics.DrawEllipse(pen, circle);
+            }
+            if (Pressed) y += 1;
+            using var ink = new SolidBrush(Enabled ? ChatTheme.Ink : ChatTheme.Muted);
+            if (playing())
+            {
+                e.Graphics.FillRectangle(ink, x - 6, y - 8, 4, 16);
+                e.Graphics.FillRectangle(ink, x + 2, y - 8, 4, 16);
+            }
+            else e.Graphics.FillPolygon(ink, [new PointF(x - 6, y - 9), new PointF(x + 7, y), new PointF(x - 6, y + 9)]);
+        }
     }
 
     private static float[] ReadPeaks(VoiceClip clip)
