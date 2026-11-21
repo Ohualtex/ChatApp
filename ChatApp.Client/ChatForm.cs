@@ -5,7 +5,7 @@ using System.Runtime.InteropServices;
 
 namespace ChatApp.Client;
 
-internal sealed class ChatForm : Form
+internal sealed partial class ChatForm : Form
 {
     private static readonly Icon WindowIcon = new(typeof(ChatForm), "Assets.app.ico");
 
@@ -91,6 +91,7 @@ internal sealed class ChatForm : Form
         ForeColor = Ink;
         BackColor = Canvas;
         Controls.Add(BuildLayout());
+        InitializeAttachmentDrop();
         chatsNav.Click += (_, _) =>
         {
             settingsContent.Visible = false;
@@ -265,6 +266,7 @@ internal sealed class ChatForm : Form
 
     private async Task SendAsync()
     {
+        if (preparingAttachments) return;
         if (connection is not { } current || connecting || sending || string.IsNullOrWhiteSpace(composer.Text))
         {
             return;
@@ -307,6 +309,7 @@ internal sealed class ChatForm : Form
 
     private void StartVoiceRecording()
     {
+        if (preparingAttachments) return;
         if (connection is null || connecting || sending || !selected.Online || recordingBar.Active) return;
         recordingDestination = selected;
         recordingConnection = connection;
@@ -350,6 +353,7 @@ internal sealed class ChatForm : Form
 
     private async Task PickAttachmentAsync()
     {
+        if (preparingAttachments) return;
         if (connection is not { } current || connecting || sending || !selected.Online) return;
         using var picker = new OpenFileDialog { Title = "Attach photo, video or file",
             Filter = "All files (*.*)|*.*|Photos|*.png;*.jpg;*.jpeg;*.gif;*.bmp|Videos|*.mp4;*.mov;*.webm" };
@@ -375,19 +379,21 @@ internal sealed class ChatForm : Form
         }
     }
 
-    private async Task SendAttachmentAsync(ChatAttachment attachment, Conversation destination)
+    private async Task<bool> SendAttachmentAsync(ChatAttachment attachment, Conversation destination)
     {
-        if (connection is not { } current || connecting || sending || !destination.Online) return;
+        if (connection is not { } current || connecting || sending || !destination.Online) return false;
         sending = true;
         RefreshControls();
         CancellationToken token = closing.Token;
         try
         {
             await current.SendAsync(new ChatPacket("file", Recipient: destination.Peer, Attachment: attachment), token);
+            return true;
         }
         catch (Exception error) when (error is IOException or SocketException or OperationCanceledException or ObjectDisposedException)
         {
             if (!token.IsCancellationRequested && ReferenceEquals(connection, current)) Disconnect(error.Message);
+            return false;
         }
         finally
         {
@@ -614,20 +620,24 @@ internal sealed class ChatForm : Form
         status.ForeColor = Muted;
         conversationAvatar.ShowConversation(selected.Title, selected.Peer is null);
         login.Visible = !connected;
+        if (preparingAttachments && attachmentStatus is not null) status.Text = attachmentStatus;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
         LayoutChatColumns();
-        chatsNav.Enabled = connected;
+        chatsNav.Enabled = connected && !preparingAttachments;
+        settingsNav.Enabled = accountNav.Enabled = !preparingAttachments;
+        backToChats.Enabled = connected && !preparingAttachments;
         if (normalComposerBar is not null) normalComposerBar.Visible = !recordingBar.Active;
         if (voiceComposerHost is not null) voiceComposerHost.Visible = recordingBar.Active;
-        memberList.Enabled = !recordingBar.Active;
+        memberList.Enabled = !recordingBar.Active && !preparingAttachments;
         composer.Enabled = connected && selected.Online && !recordingBar.Active;
-        attach.Enabled = voice.Enabled = connected && selected.Online && !sending;
+        attach.Enabled = voice.Enabled = connected && selected.Online && !sending && !preparingAttachments;
 
         bool hasMessage = !string.IsNullOrWhiteSpace(composer.Text);
         voice.Visible = !hasMessage;
         send.Visible = hasMessage;
-        send.Enabled = connected && selected.Online && !sending && hasMessage;
+        send.Enabled = connected && selected.Online && !sending && !preparingAttachments && hasMessage;
+        if (!CanAcceptFileDrop()) HideAttachmentDrop();
     }
 
     protected override void OnClientSizeChanged(EventArgs e)
@@ -826,13 +836,18 @@ internal sealed class ChatForm : Form
         right.Controls.Add(header, 0, 0);
         right.Controls.Add(body, 0, 1);
         right.Controls.Add(footer, 0, 2);
+        var conversationView = new Panel { Margin = Padding.Empty };
+        conversationView.Controls.Add(right);
+        conversationView.Controls.Add(attachmentDrop);
+        attachmentDropHost = conversationView;
+        attachmentHeader = header;
+        right.Layout += (_, _) => UpdateAttachmentDropBounds();
         var main = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty };
         chatArea = main;
-        chatContent = right;
+        chatContent = conversationView;
         main.SizeChanged += (_, _) => LayoutChatColumns();
-        right.Dock = DockStyle.None;
         membersDrawer.Dock = DockStyle.None;
-        main.Controls.Add(right);
+        main.Controls.Add(conversationView);
         main.Controls.Add(membersDrawer);
         main.Controls.Add(chatDivider);
         layout.Controls.Add(rail, 0, 0);
