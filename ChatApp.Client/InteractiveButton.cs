@@ -4,99 +4,20 @@ namespace ChatApp.Client;
 
 internal class InteractiveButton : Button
 {
-    private bool hovered, pointerDown, keyDown;
-    protected bool Hovered => Enabled && hovered;
-    protected bool Pressed => Enabled && ((pointerDown && hovered) || keyDown);
+    private readonly InteractionFeedback interaction;
+    protected bool Hovered => interaction.Hovered;
+    protected bool Pressed => interaction.Pressed;
     protected bool KeyboardFocused => Focused && base.ShowFocusCues;
     protected override bool ShowFocusCues => false;
 
     public InteractiveButton()
     {
+        interaction = new InteractionFeedback(this);
         FlatStyle = FlatStyle.Flat;
         FlatAppearance.BorderSize = 0;
         UseVisualStyleBackColor = false;
         Cursor = Cursors.Hand;
         SetStyle(ControlStyles.UserPaint | ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer, true);
-    }
-
-    protected override void OnMouseEnter(EventArgs e)
-    {
-        hovered = true;
-        base.OnMouseEnter(e);
-        Invalidate();
-    }
-
-    protected override void OnMouseLeave(EventArgs e)
-    {
-        hovered = false;
-        base.OnMouseLeave(e);
-        Invalidate();
-    }
-
-    protected override void OnMouseMove(MouseEventArgs e)
-    {
-        bool inside = ClientRectangle.Contains(e.Location);
-        if (inside != hovered) { hovered = inside; Invalidate(); }
-        base.OnMouseMove(e);
-    }
-
-    protected override void OnMouseDown(MouseEventArgs e)
-    {
-        if (Enabled && e.Button == MouseButtons.Left) { pointerDown = true; hovered = ClientRectangle.Contains(e.Location); }
-        base.OnMouseDown(e);
-        Invalidate();
-    }
-
-    protected override void OnMouseUp(MouseEventArgs e)
-    {
-        if (e.Button == MouseButtons.Left) pointerDown = false;
-        base.OnMouseUp(e);
-        Invalidate();
-    }
-
-    protected override void OnMouseCaptureChanged(EventArgs e)
-    {
-        if (!Capture) pointerDown = false;
-        base.OnMouseCaptureChanged(e);
-        Invalidate();
-    }
-
-    protected override void OnKeyDown(KeyEventArgs e)
-    {
-        if (Enabled && e.KeyCode == Keys.Space) keyDown = true;
-        base.OnKeyDown(e);
-        Invalidate();
-    }
-
-    protected override void OnKeyUp(KeyEventArgs e)
-    {
-        if (e.KeyCode == Keys.Space) keyDown = false;
-        base.OnKeyUp(e);
-        Invalidate();
-    }
-
-    protected override void OnLostFocus(EventArgs e)
-    {
-        pointerDown = keyDown = false;
-        base.OnLostFocus(e);
-        Invalidate();
-    }
-
-    protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
-
-    protected override void OnEnabledChanged(EventArgs e)
-    {
-        if (!Enabled) hovered = pointerDown = keyDown = false;
-        Cursor = Enabled ? Cursors.Hand : Cursors.Default;
-        base.OnEnabledChanged(e);
-        Invalidate();
-    }
-
-    protected override void OnVisibleChanged(EventArgs e)
-    {
-        if (!Visible) hovered = pointerDown = keyDown = false;
-        base.OnVisibleChanged(e);
-        Invalidate();
     }
 
     protected override void OnPaint(PaintEventArgs e)
