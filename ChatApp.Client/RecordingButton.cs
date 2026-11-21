@@ -2,7 +2,7 @@ namespace ChatApp.Client;
 
 internal enum RecordingAction { Delete, Pause, Resume, Send, Microphone, Attach }
 
-internal sealed class RecordingButton : Button
+internal sealed class RecordingButton : InteractiveButton
 {
     private static readonly Font AttachFont = new("Segoe MDL2 Assets", 22, FontStyle.Regular, GraphicsUnit.Pixel);
     private RecordingAction action;
@@ -23,16 +23,36 @@ internal sealed class RecordingButton : Button
     {
         e.Graphics.Clear(BackColor);
         e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-        float x = Width / 2f, y = Height / 2f;
-        Color ink = !Enabled ? ChatTheme.Muted : Action is RecordingAction.Pause or RecordingAction.Resume
-            ? Color.FromArgb(255, 153, 174) : ChatTheme.Ink;
+        float scale = DeviceDpi / 96f;
+        float x = Width / scale / 2f, y = Height / scale / 2f;
+        bool active = Hovered || Pressed || KeyboardFocused;
+        bool greenSurface = Action == RecordingAction.Send || (Action == RecordingAction.Microphone && active && Enabled);
+        var state = e.Graphics.Save();
+        e.Graphics.ScaleTransform(scale, scale);
+        float diameter = Math.Max(2, Math.Min(40, Math.Min(Width / scale, Height / scale) - 4));
+        var circle = new RectangleF(x - diameter / 2, y - diameter / 2, diameter, diameter);
+        if (greenSurface || (active && Enabled))
+        {
+            Color surface = greenSurface
+                ? !Enabled ? ChatTheme.Muted : Pressed ? Color.FromArgb(28, 171, 82)
+                    : Hovered ? Color.FromArgb(52, 225, 119) : ChatTheme.Accent
+                : Pressed ? Color.FromArgb(32, 35, 34) : Color.FromArgb(58, 61, 60);
+            using var fill = new SolidBrush(surface);
+            e.Graphics.FillEllipse(fill, circle);
+        }
+        if (KeyboardFocused && Enabled)
+        {
+            using var outline = new Pen(ChatTheme.Muted, 1);
+            e.Graphics.DrawEllipse(outline, circle);
+        }
+        if (Pressed) y += 1;
+        Color ink = !Enabled ? ChatTheme.Muted : greenSurface ? ChatTheme.Canvas
+            : Action is RecordingAction.Pause or RecordingAction.Resume ? Color.FromArgb(255, 153, 174) : ChatTheme.Ink;
         using var pen = new Pen(ink, 2) { StartCap = System.Drawing.Drawing2D.LineCap.Round, EndCap = System.Drawing.Drawing2D.LineCap.Round };
         using var brush = new SolidBrush(ink);
         switch (Action)
         {
             case RecordingAction.Send:
-                using (var green = new SolidBrush(Enabled ? ChatTheme.Accent : ChatTheme.Muted))
-                    e.Graphics.FillEllipse(green, x - 19, y - 19, 38, 38);
                 using (var dark = new SolidBrush(ChatTheme.Canvas))
                     e.Graphics.FillPolygon(dark, [new PointF(x - 6, y - 8), new PointF(x + 10, y), new PointF(x - 6, y + 8), new PointF(x - 3, y)]);
                 break;
@@ -59,8 +79,6 @@ internal sealed class RecordingButton : Button
                 e.Graphics.DrawLine(pen, x - 4, y + 12, x + 4, y + 12);
                 break;
             case RecordingAction.Attach:
-                TextRenderer.DrawText(e.Graphics, "\uE723", AttachFont, ClientRectangle, ink,
-                    TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
                 break;
             case RecordingAction.Delete:
                 e.Graphics.DrawLine(pen, x - 8, y - 7, x + 8, y - 7);
@@ -69,6 +87,15 @@ internal sealed class RecordingButton : Button
                 e.Graphics.DrawLine(pen, x - 2, y - 3, x - 2, y + 4);
                 e.Graphics.DrawLine(pen, x + 2, y - 3, x + 2, y + 4);
                 break;
+        }
+        e.Graphics.Restore(state);
+        if (Action == RecordingAction.Attach)
+        {
+            Rectangle bounds = ClientRectangle;
+            if (Pressed) bounds.Offset(0, Math.Max(1, (int)Math.Round(scale)));
+            using var font = new Font(AttachFont.FontFamily, AttachFont.Size * scale, FontStyle.Regular, GraphicsUnit.Pixel);
+            TextRenderer.DrawText(e.Graphics, "\uE723", font, bounds, ink,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding);
         }
     }
 }
