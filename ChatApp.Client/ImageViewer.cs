@@ -1,22 +1,25 @@
 namespace ChatApp.Client;
 
-internal sealed class ImageViewer : Form
+internal sealed class ImageViewer : UserControl
 {
     private Bitmap image;
     private readonly ImageGalleryItem[] items;
     private int currentIndex;
     private ImageGalleryItem CurrentItem => items[currentIndex];
     private readonly Label caption = new() { Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft };
-    private readonly InteractiveButton previous = new() { Text = "\u2039", AccessibleName = "Previous image", Size = new Size(36, 44), Anchor = AnchorStyles.None };
-    private readonly InteractiveButton next = new() { Text = "\u203a", AccessibleName = "Next image", Size = new Size(36, 44), Anchor = AnchorStyles.None };
+    private readonly ImageViewerButton previous = new(ImageViewerAction.Previous) { AccessibleName = "Previous image" };
+    private readonly ImageViewerButton next = new(ImageViewerAction.Next) { AccessibleName = "Next image" };
     private readonly ZoomImageCanvas picture;
-    private readonly InteractiveButton zoomOut = new() { Text = "\u2212", AccessibleName = "Zoom out", Size = new Size(36, 36) };
-    private readonly InteractiveButton zoomIn = new() { Text = "+", AccessibleName = "Zoom in", Size = new Size(36, 36) };
-    private readonly InteractiveButton fit = new() { AccessibleName = "Fit image to window", Size = new Size(64, 36) };
+    private readonly ImageViewerButton zoomOut = new(ImageViewerAction.ZoomOut) { AccessibleName = "Zoom out" };
+    private readonly ImageViewerButton zoomIn = new(ImageViewerAction.ZoomIn) { AccessibleName = "Zoom in" };
+    private readonly ImageViewerButton fit = new(ImageViewerAction.Fit) { AccessibleName = "Fit image to window" };
+    private readonly ImageViewerButton save = new(ImageViewerAction.Save) { AccessibleName = "Save image as" };
+    private readonly ImageViewerButton close = new(ImageViewerAction.Close) { AccessibleName = "Close image" };
+    private readonly ConversationAvatar avatar = new() { BackColor = ChatTheme.Canvas };
+    private readonly Label detail = new() { AutoEllipsis = true, ForeColor = ChatTheme.Muted };
+    private readonly ImageThumbnailStrip thumbnails;
+    internal event EventHandler? CloseRequested;
     private readonly ToolTip tips = new();
-
-    public ImageViewer(ChatAttachment attachment, byte[] bytes, string sender, DateTimeOffset? timestamp)
-        : this([new ImageGalleryItem(attachment, bytes, sender, timestamp)], 0) { }
 
     public ImageViewer(IReadOnlyList<ImageGalleryItem> gallery, int index)
     {
@@ -25,41 +28,25 @@ internal sealed class ImageViewer : Form
         items = gallery.ToArray();
         currentIndex = index;
         image = Decode(CurrentItem);
-        picture = new ZoomImageCanvas(image) { Dock = DockStyle.Fill };
+        picture = new ZoomImageCanvas(image);
         BackColor = ChatTheme.Canvas;
         ForeColor = ChatTheme.Ink;
         Font = new Font("Segoe UI", 10);
-        MinimumSize = new Size(640, 440);
-        ClientSize = new Size(1000, 720);
-        ShowInTaskbar = false;
-        StartPosition = FormStartPosition.CenterParent;
-        var header = new TableLayoutPanel
-        {
-            Dock = DockStyle.Top, Height = 72, ColumnCount = 6, RowCount = 1,
-            Padding = new Padding(20, 10, 12, 10), BackColor = ChatTheme.Canvas
-        };
-        header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        for (int column = 0; column < 5; column++)
-            header.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var save = new InteractiveButton { Text = "Save as\u2026", AutoSize = true, AccessibleName = "Save image as" };
-        var close = new InteractiveButton { Text = "\u00d7", Size = new Size(36, 36), AccessibleName = "Close image", DialogResult = DialogResult.Cancel };
-        foreach (Button button in new[] { zoomOut, zoomIn, fit, save, close })
-        {
-            button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderSize = 0;
-            button.FlatAppearance.MouseOverBackColor = ChatTheme.Raised;
-            button.BackColor = ChatTheme.Canvas;
-            button.ForeColor = ChatTheme.Ink;
-            button.Anchor = AnchorStyles.None;
-            button.Padding = new Padding(12, 6, 12, 6);
-        }
+        Dock = DockStyle.Fill;
+        DoubleBuffered = true;
+        AccessibleName = "Image viewer";
+        caption.Dock = DockStyle.None;
+        caption.Font = new Font("Segoe UI", 10, FontStyle.Bold);
+        thumbnails = new ImageThumbnailStrip(items);
+        thumbnails.SelectionRequested += ShowImage;
+        close.Click += (_, _) => CloseRequested?.Invoke(this, EventArgs.Empty);
         save.Click += async (_, _) =>
         {
             save.Enabled = false;
             try
             {
                 ImageGalleryItem item = CurrentItem;
-                await SaveImageAsync(this, item.Attachment, item.Bytes);
+                await SaveImageAsync(FindForm(), item.Attachment, item.Bytes);
             }
             finally { if (!IsDisposed) save.Enabled = true; }
         };
@@ -75,28 +62,11 @@ internal sealed class ImageViewer : Form
         tips.SetToolTip(fit, "Fit image to window (Home or Ctrl+0)");
         picture.GalleryNavigationRequested += Navigate;
         picture.ZoomChanged += (_, _) => UpdateZoomControls();
-        CancelButton = close;
-        header.Controls.Add(caption, 0, 0);
-        header.Controls.Add(zoomOut, 1, 0);
-        header.Controls.Add(zoomIn, 2, 0);
-        header.Controls.Add(fit, 3, 0);
-        header.Controls.Add(save, 4, 0);
-        header.Controls.Add(close, 5, 0);
-        var canvas = new TableLayoutPanel
-        {
-            Dock = DockStyle.Fill, Padding = new Padding(12, 8, 12, 20), ColumnCount = 3, RowCount = 1
-        };
-        int sideWidth = items.Length > 1 ? 48 : 0;
-        canvas.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, sideWidth));
-        canvas.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        canvas.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, sideWidth));
+        Controls.AddRange([picture, previous, next, avatar, caption, detail, zoomOut, zoomIn, fit, save, close, thumbnails]);
         previous.Visible = next.Visible = items.Length > 1;
-        canvas.Controls.Add(previous, 0, 0);
-        canvas.Controls.Add(picture, 1, 0);
-        canvas.Controls.Add(next, 2, 0);
-        Controls.Add(canvas);
-        Controls.Add(header);
-        Shown += (_, _) => ChatTheme.DarkTitle(this);
+        tips.SetToolTip(save, "Save image as");
+        tips.SetToolTip(close, "Close (Esc)");
+        LayoutViewer();
         UpdateCurrentImage();
         UpdateZoomControls();
     }
@@ -111,17 +81,21 @@ internal sealed class ImageViewer : Form
     private void UpdateCurrentImage()
     {
         ImageGalleryItem item = CurrentItem;
-        Text = picture.AccessibleName = item.Attachment.DisplayName;
+        picture.AccessibleName = item.Attachment.DisplayName;
+        avatar.ShowConversation(item.Sender.Length > 0 ? item.Sender : "Unknown", false);
         string date = item.Timestamp?.ToLocalTime().ToString("dd MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? "";
-        caption.Text = item.Sender + "\n" + date + (items.Length > 1 ? $"  \u00b7  {currentIndex + 1} / {items.Length}" : "");
+        caption.Text = item.Sender;
+        detail.Text = date + (items.Length > 1 ? $"  /  {currentIndex + 1} of {items.Length}" : "");
+        thumbnails.SelectImage(currentIndex);
         previous.Enabled = currentIndex > 0;
         next.Enabled = currentIndex < items.Length - 1;
     }
 
-    private void Navigate(int direction)
+    private void Navigate(int direction) => ShowImage(currentIndex + direction);
+
+    private void ShowImage(int target)
     {
-        int target = currentIndex + direction;
-        if (target < 0 || target >= items.Length) return;
+        if (target < 0 || target >= items.Length || target == currentIndex) return;
         try
         {
             Bitmap replacement = Decode(items[target]);
@@ -140,13 +114,17 @@ internal sealed class ImageViewer : Form
 
     private void UpdateZoomControls()
     {
-        fit.Text = $"{picture.ZoomPercent:0}%";
+        tips.SetToolTip(fit, $"Fit image to window (Home or Ctrl+0) - {picture.ZoomPercent:0}%");
         zoomOut.Enabled = picture.ZoomFactor > 1.00001;
         zoomIn.Enabled = picture.ZoomFactor < 7.99999;
     }
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
+        => HandleViewerKey(keyData) || base.ProcessCmdKey(ref msg, keyData);
+
+    internal bool HandleViewerKey(Keys keyData)
     {
+        if (keyData == Keys.Escape) { CloseRequested?.Invoke(this, EventArgs.Empty); return true; }
         Keys key = keyData & Keys.KeyCode;
         if (keyData == Keys.PageUp || (keyData == Keys.Left && picture.ZoomFactor <= 1.00001))
         { Navigate(-1); return true; }
@@ -158,7 +136,47 @@ internal sealed class ImageViewer : Form
             if (key is Keys.Subtract or Keys.OemMinus) { picture.ZoomBy(1 / 1.25); return true; }
             if (key == Keys.Home || keyData == (Keys.Control | Keys.D0)) { picture.FitImage(); return true; }
         }
-        return base.ProcessCmdKey(ref msg, keyData);
+        return false;
+    }
+
+    protected override bool ProcessDialogKey(Keys keyData)
+    {
+        if ((keyData & ~Keys.Shift) == Keys.Tab)
+        {
+            SelectNextControl(ActiveControl, (keyData & Keys.Shift) == 0, true, true, true);
+            return true;
+        }
+        return base.ProcessDialogKey(keyData);
+    }
+
+    protected override void OnSizeChanged(EventArgs e)
+    {
+        base.OnSizeChanged(e);
+        if (thumbnails is not null) LayoutViewer();
+    }
+
+    private void LayoutViewer()
+    {
+        int S(int value) => (int)Math.Round(value * DeviceDpi / 96d);
+        int top = S(78), bottom = S(104), size = S(40), gap = S(8), margin = S(20);
+        int x = ClientSize.Width - margin;
+        foreach (Control control in new Control[] { close, save, fit, zoomIn, zoomOut })
+        {
+            x -= size;
+            control.Bounds = new Rectangle(x, (top - size) / 2, size, size);
+            x -= gap;
+        }
+        avatar.Bounds = new Rectangle(margin, S(17), S(44), S(44));
+        int textLeft = avatar.Right + S(14);
+        int textWidth = Math.Max(1, x - textLeft - gap);
+        caption.Bounds = new Rectangle(textLeft, S(18), textWidth, S(23));
+        detail.Bounds = new Rectangle(textLeft, S(43), textWidth, S(22));
+        int side = S(70), arrow = S(48);
+        int bodyHeight = Math.Max(1, Height - top - bottom);
+        picture.Bounds = new Rectangle(side, top + S(6), Math.Max(1, Width - side * 2), Math.Max(1, bodyHeight - S(20)));
+        previous.Bounds = new Rectangle(S(12), top + (bodyHeight - arrow) / 2, arrow, arrow);
+        next.Bounds = new Rectangle(Width - S(12) - arrow, previous.Top, arrow, arrow);
+        thumbnails.Bounds = new Rectangle(0, Math.Max(top, Height - bottom), Width, bottom);
     }
 
     internal static async Task SaveImageAsync(IWin32Window? owner, ChatAttachment attachment, byte[] bytes)

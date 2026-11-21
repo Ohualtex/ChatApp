@@ -12,7 +12,7 @@ internal sealed partial class ChatForm
     private bool preparingAttachments;
     private string? attachmentStatus;
 
-    private bool CanAcceptFileDrop() => Enabled && connection is not null && !connecting && !sending && !preparingAttachments
+    private bool CanAcceptFileDrop() => imageViewer is null && Enabled && connection is not null && !connecting && !sending && !preparingAttachments
         && !recordingBar.Active && selected.Online && chatContent is { Visible: true } && !closing.IsCancellationRequested;
 
     private void InitializeAttachmentDrop()
@@ -160,6 +160,7 @@ internal sealed partial class ChatForm
 
     protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
     {
+        if (imageViewer is not null && imageViewer.HandleViewerKey(keyData)) return true;
         if (keyData == Keys.Escape && attachmentDrop.Visible) { HideAttachmentDrop(); return true; }
         return base.ProcessCmdKey(ref msg, keyData);
     }

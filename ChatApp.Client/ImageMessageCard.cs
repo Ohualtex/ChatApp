@@ -27,7 +27,7 @@ internal sealed class ImageMessageCard : Control
         this.sender = sender;
         this.time = time;
         this.timestamp = timestamp;
-        GalleryItem = new ImageGalleryItem(attachment, bytes, sender, timestamp);
+        GalleryItem = new ImageGalleryItem(attachment, bytes, sender, timestamp, preview);
         interaction = new InteractionFeedback(this);
         DoubleBuffered = true;
         ResizeRedraw = true;
@@ -138,15 +138,7 @@ internal sealed class ImageMessageCard : Control
             ImageGalleryItem[] items = GalleryItems?.Invoke().ToArray() ?? [GalleryItem];
             int index = Array.IndexOf(items, GalleryItem);
             if (index < 0) { items = [GalleryItem]; index = 0; }
-            using var viewer = new ImageViewer(items, index);
-            Form? owner = FindForm();
-            if (owner is not null)
-            {
-                viewer.StartPosition = FormStartPosition.Manual;
-                viewer.Bounds = owner.Bounds;
-                viewer.Icon = owner.Icon;
-            }
-            viewer.ShowDialog(owner);
+            if (FindForm() is ChatForm owner) owner.OpenImageViewer(items, index, this);
         }
         catch (Exception error) when (error is ArgumentException or OutOfMemoryException or IOException)
         {
