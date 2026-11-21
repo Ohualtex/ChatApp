@@ -305,7 +305,7 @@ internal sealed class MessageFeed : Panel
                             TimeSpan duration = WaveAudio.Duration(bytes);
                             message = "Voice message  " + duration.ToString(@"mm\:ss");
                             playback = new VoicePlayback();
-                            play = new Button { Text = "Play", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                            play = new InteractiveButton { Text = "Play", AutoSize = true, FlatStyle = FlatStyle.Flat,
                                 BackColor = ChatTheme.Surface, ForeColor = Ink };
                             playback.Changed += () => play.Text = playback.Playing ? "Stop" : "Play";
                             play.Click += (_, _) =>
@@ -339,7 +339,7 @@ internal sealed class MessageFeed : Panel
                     }
                     else if (imageCard is null)
                     {
-                        save = new Button { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                        save = new InteractiveButton { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
                             BackColor = ChatTheme.Surface, ForeColor = Ink };
                         save.Click += async (_, _) =>
                         {

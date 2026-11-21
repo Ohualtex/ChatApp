@@ -29,9 +29,9 @@ internal sealed class ChatForm : Form
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = false, AutoEllipsis = true };
     private readonly ConversationAvatar conversationAvatar = new();
-    private readonly Button connect = new() { Text = "Connect", AutoSize = true };
+    private readonly InteractiveButton connect = new() { Text = "Connect", AutoSize = true };
     private readonly Label membersToggle = new() { Text = "General", AutoSize = false, AutoEllipsis = true };
-    private readonly Button backToChats = new() { Text = "←", AccessibleName = "Back to chats", AutoSize = true };
+    private readonly InteractiveButton backToChats = new() { Text = "←", AccessibleName = "Back to chats", AutoSize = true };
     private readonly Panel chatDivider = new() { Cursor = Cursors.VSplit, BackColor = ChatTheme.Raised };
     private readonly Panel membersDrawer = new() { Dock = DockStyle.Left, Width = 320, BackColor = ChatTheme.Canvas };
     private readonly Label memberCount = new() { AutoSize = true, ForeColor = Muted };
@@ -48,7 +48,7 @@ internal sealed class ChatForm : Form
     private Control chatsContent = null!;
     private Control settingsContent = null!;
     private readonly Label accountSummary = new() { AutoSize = true, MaximumSize = new Size(240, 0) };
-    private readonly Button disconnect = new() { Text = "Disconnect", AutoSize = true };
+    private readonly InteractiveButton disconnect = new() { Text = "Disconnect", AutoSize = true };
     private readonly MessageFeed messages = new();
     private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
     private Control login = null!;
@@ -71,6 +71,7 @@ internal sealed class ChatForm : Form
     private Conversation selected = new(null);
     private bool refreshingChats;
     private int hoveredConversation = -1;
+    private int pressedConversation = -1;
     private Panel? chatArea;
     private Control? chatContent;
     private bool compactLayout;
@@ -133,6 +134,16 @@ internal sealed class ChatForm : Form
             hoveredConversation = -1;
             InvalidateConversation(previous);
         };
+        memberList.MouseDown += (_, e) =>
+        {
+            if (e.Button != MouseButtons.Left || !memberList.Visible || !memberList.Enabled) return;
+            pressedConversation = hoveredConversation = memberList.IndexFromPoint(e.Location);
+            InvalidateConversation(pressedConversation);
+        };
+        memberList.MouseUp += (_, e) => { if (e.Button == MouseButtons.Left) ClearPressedConversation(); };
+        memberList.MouseCaptureChanged += (_, _) => { if (!memberList.Capture) ClearPressedConversation(); };
+        memberList.VisibleChanged += (_, _) => { if (!memberList.Visible) ClearPressedConversation(); };
+        memberList.EnabledChanged += (_, _) => { if (!memberList.Enabled) ClearPressedConversation(); };
         memberList.SizeChanged += (_, _) => memberList.Invalidate();
         memberList.DpiChangedAfterParent += (_, _) => memberList.ItemHeight = ScaleLayout(80);
         memberList.SelectedIndexChanged += (_, _) =>
@@ -485,7 +496,7 @@ internal sealed class ChatForm : Form
     private void RefreshConversationList()
     {
         refreshingChats = true;
-        hoveredConversation = -1;
+        hoveredConversation = pressedConversation = -1;
         memberList.BeginUpdate();
         try
         {
@@ -520,6 +531,13 @@ internal sealed class ChatForm : Form
             memberList.Invalidate(memberList.GetItemRectangle(index));
     }
 
+    private void ClearPressedConversation()
+    {
+        int previous = pressedConversation;
+        pressedConversation = -1;
+        InvalidateConversation(previous);
+    }
+
     private void DrawConversation(object? sender, DrawItemEventArgs e)
     {
         if (e.Index < 0) return;
@@ -537,7 +555,8 @@ internal sealed class ChatForm : Form
             path.AddArc(card.Left, card.Bottom - diameter, diameter, diameter, 90, 90);
             path.CloseFigure();
             e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            using var fill = new SolidBrush(active ? ChatTheme.Raised : ChatTheme.Surface);
+            using var fill = new SolidBrush(e.Index == pressedConversation && e.Index == hoveredConversation
+                ? Color.FromArgb(34, 37, 35) : active ? ChatTheme.Raised : ChatTheme.Surface);
             e.Graphics.FillPath(fill, path);
         }
         int avatarSize = ScaleLayout(48);

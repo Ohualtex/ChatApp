@@ -14,8 +14,8 @@ internal sealed class FileAttachmentCard : RoundedPanel
     private readonly Label fileName = new() { AutoEllipsis = true, UseMnemonic = false, Font = NameFont };
     private readonly Label detail = new() { AutoEllipsis = true, UseMnemonic = false, Font = DetailFont };
     private readonly Label clock = new() { Font = DetailFont, TextAlign = ContentAlignment.MiddleRight };
-    private readonly Button open = new() { Text = "Open", AccessibleName = "Open attachment" };
-    private readonly Button save = new() { Text = "Save as…", AccessibleName = "Save attachment as" };
+    private readonly InteractiveButton open = new() { Text = "Open", AccessibleName = "Open attachment" };
+    private readonly InteractiveButton save = new() { Text = "Save as…", AccessibleName = "Save attachment as" };
     private readonly FileTypeIcon icon;
     private readonly ToolTip tips = new();
     private readonly bool supportsOpen;

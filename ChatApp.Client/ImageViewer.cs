@@ -31,8 +31,8 @@ internal sealed class ImageViewer : Form
             Text = sender + "\n" + (timestamp?.ToLocalTime().ToString("dd MMM yyyy, HH:mm", System.Globalization.CultureInfo.InvariantCulture) ?? ""),
             Dock = DockStyle.Fill, AutoEllipsis = true, TextAlign = ContentAlignment.MiddleLeft
         };
-        var save = new Button { Text = "Save as…", AutoSize = true, AccessibleName = "Save image as" };
-        var close = new Button { Text = "×", AutoSize = true, AccessibleName = "Close image", DialogResult = DialogResult.Cancel };
+        var save = new InteractiveButton { Text = "Save as…", AutoSize = true, AccessibleName = "Save image as" };
+        var close = new InteractiveButton { Text = "×", AutoSize = true, AccessibleName = "Close image", DialogResult = DialogResult.Cancel };
         foreach (Button button in new[] { save, close })
         {
             button.FlatStyle = FlatStyle.Flat;
