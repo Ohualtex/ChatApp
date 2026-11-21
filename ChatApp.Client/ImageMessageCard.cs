@@ -14,6 +14,8 @@ internal sealed class ImageMessageCard : Control
     private readonly ContextMenuStrip menu = new();
     private Rectangle imageBounds, clockBounds;
     private readonly InteractionFeedback interaction;
+    internal ImageGalleryItem GalleryItem { get; }
+    internal Func<IReadOnlyList<ImageGalleryItem>>? GalleryItems;
 
     private ImageMessageCard(ChatAttachment attachment, byte[] bytes, Bitmap preview, Size sourceSize,
         string sender, string time, DateTimeOffset? timestamp)
@@ -25,6 +27,7 @@ internal sealed class ImageMessageCard : Control
         this.sender = sender;
         this.time = time;
         this.timestamp = timestamp;
+        GalleryItem = new ImageGalleryItem(attachment, bytes, sender, timestamp);
         interaction = new InteractionFeedback(this);
         DoubleBuffered = true;
         ResizeRedraw = true;
@@ -132,7 +135,10 @@ internal sealed class ImageMessageCard : Control
     {
         try
         {
-            using var viewer = new ImageViewer(attachment, bytes, sender, timestamp);
+            ImageGalleryItem[] items = GalleryItems?.Invoke().ToArray() ?? [GalleryItem];
+            int index = Array.IndexOf(items, GalleryItem);
+            if (index < 0) { items = [GalleryItem]; index = 0; }
+            using var viewer = new ImageViewer(items, index);
             Form? owner = FindForm();
             if (owner is not null)
             {

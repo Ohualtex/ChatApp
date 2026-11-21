@@ -130,6 +130,9 @@ internal sealed class MessageFeed : Panel
         {
             row.Visible = false;
             rows.Add(row);
+            if (row.ImageCard is { } card)
+                card.GalleryItems = () => rows.Where(item => item.ImageCard is not null)
+                    .Select(item => item.ImageCard!.GalleryItem).ToArray();
             Controls.Add(row);
         }
         LayoutRows(follow);
@@ -268,6 +271,7 @@ internal sealed class MessageFeed : Panel
         private readonly Label messageLabel;
         private readonly Label timeLabel;
         private readonly ImageMessageCard? imageCard;
+        public ImageMessageCard? ImageCard => imageCard;
         private readonly Button? save;
         private readonly Button? play;
         private readonly VoicePlayback? playback;

@@ -4,7 +4,7 @@ namespace ChatApp.Client;
 
 internal sealed class ZoomImageCanvas : Control
 {
-    private readonly Image image;
+    private Image image;
     private double zoom = 1;
     private PointF pan, dragPan;
     private Point dragStart;
@@ -12,6 +12,7 @@ internal sealed class ZoomImageCanvas : Control
     internal double ZoomFactor => zoom;
     internal double ZoomPercent => FitScale() * zoom * 100;
     public event EventHandler? ZoomChanged;
+    internal event Action<int>? GalleryNavigationRequested;
 
     public ZoomImageCanvas(Image image)
     {
@@ -23,6 +24,12 @@ internal sealed class ZoomImageCanvas : Control
         BackColor = ChatTheme.Canvas;
         AccessibleRole = AccessibleRole.Graphic;
         AccessibleDescription = "Use the mouse wheel or plus and minus to zoom. Drag to pan. Home fits the image.";
+    }
+
+    internal void SetImage(Image source)
+    {
+        image = source;
+        FitImage();
     }
 
     private double FitScale() => Math.Max(.0001, Math.Min(ClientSize.Width / (double)image.Width, ClientSize.Height / (double)image.Height));
@@ -153,6 +160,12 @@ internal sealed class ZoomImageCanvas : Control
 
     protected override void OnKeyDown(KeyEventArgs e)
     {
+        if (zoom <= 1.00001 && GalleryNavigationRequested is not null && e.KeyData is Keys.Left or Keys.Right)
+        {
+            GalleryNavigationRequested.Invoke(e.KeyCode == Keys.Left ? -1 : 1);
+            e.Handled = e.SuppressKeyPress = true;
+            return;
+        }
         float step = 40 * DeviceDpi / 96f;
         switch (e.KeyCode)
         {
