@@ -19,6 +19,7 @@ internal sealed class ChatForm : Form
     private static readonly Font SidebarTitleFont = new("Segoe UI", 16, FontStyle.Regular);
     private static readonly Font ConversationFont = new("Segoe UI", 10, FontStyle.Regular);
     private static readonly Font PreviewFont = new("Segoe UI", 9);
+    private static readonly Font SearchIconFont = new("Segoe MDL2 Assets", 12);
     private static readonly Font SidebarIconFont = new("Segoe MDL2 Assets", 14);
     private static readonly Font BodyFont = new("Segoe UI", 10);
     private static readonly Font ActionFont = new("Segoe UI", 10, FontStyle.Bold);
@@ -859,8 +860,8 @@ internal sealed class ChatForm : Form
         };
         var searchIcon = new Label
         {
-            Text = "\uE721", Font = SidebarIconFont, ForeColor = Muted, Dock = DockStyle.Left,
-            Width = 28, TextAlign = ContentAlignment.MiddleLeft
+            Text = "\uE721", Font = SearchIconFont, ForeColor = Muted, Dock = DockStyle.Left,
+            Width = 28, TextAlign = ContentAlignment.MiddleCenter
         };
         search.BorderStyle = BorderStyle.None;
         search.BackColor = ChatTheme.Raised;
@@ -869,8 +870,12 @@ internal sealed class ChatForm : Form
         search.Dock = DockStyle.None;
         var searchTextHost = new Panel { Dock = DockStyle.Fill, Padding = Padding.Empty };
         searchTextHost.Controls.Add(search);
-        void PositionSearch() => search.SetBounds(0, Math.Max(0, (searchTextHost.Height - search.PreferredHeight) / 2),
-            searchTextHost.Width, search.PreferredHeight);
+        void PositionSearch()
+        {
+            int gap = ScaleLayout(10);
+            search.SetBounds(gap, Math.Max(0, (searchTextHost.Height - search.PreferredHeight) / 2),
+                Math.Max(1, searchTextHost.Width - gap), search.PreferredHeight);
+        }
         searchTextHost.SizeChanged += (_, _) => PositionSearch();
         search.FontChanged += (_, _) => PositionSearch();
         searchShell.Controls.Add(searchTextHost);
