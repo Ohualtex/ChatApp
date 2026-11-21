@@ -334,8 +334,9 @@ internal sealed class MessageFeed : Panel
                             using var original = Image.FromStream(stream);
                             if (original.Width <= 4096 && original.Height <= 4096)
                             {
-                                int height = Math.Max(1, Math.Min(180, original.Height * 220 / original.Width));
-                                int width = Math.Max(1, Math.Min(220, original.Width * height / original.Height));
+                                double scale = Math.Min(1d, Math.Min(220d / original.Width, 180d / original.Height));
+                                int width = Math.Max(1, (int)Math.Round(original.Width * scale));
+                                int height = Math.Max(1, (int)Math.Round(original.Height * scale));
                                 photo = new PictureBox { Image = new Bitmap(original, width, height),
                                     SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(width, height) };
                                 bubble.Controls.Add(photo);
@@ -438,8 +439,9 @@ internal sealed class MessageFeed : Panel
 
             if (photo is not null)
             {
-                photo.Bounds = new Rectangle(horizontalPadding, y, Math.Min(textLimit, photo.Image!.Width),
-                    Math.Min(180, photo.Image.Height));
+                int previewWidth = Math.Max(1, Math.Min(textLimit, photo.Image!.Width));
+                int previewHeight = Math.Max(1, (int)Math.Round(photo.Image.Height * (double)previewWidth / photo.Image.Width));
+                photo.Bounds = new Rectangle(horizontalPadding, y, previewWidth, previewHeight);
                 y += photo.Height + 6;
                 textWidth = Math.Max(textWidth, photo.Width);
             }
