@@ -272,6 +272,7 @@ internal sealed class MessageFeed : Panel
         private readonly Button? play;
         private readonly VoicePlayback? playback;
         private readonly VoiceMessageCard? voiceCard;
+        private readonly FileAttachmentCard? fileCard;
         private readonly bool outgoing;
         private readonly bool notice;
 
@@ -347,23 +348,32 @@ internal sealed class MessageFeed : Panel
                             // Unsupported image formats remain downloadable file cards.
                         }
                     }
-                    save = new Button { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
-                        BackColor = ChatTheme.Surface, ForeColor = Ink };
-                    save.Click += async (_, _) =>
+                    if (photo is null && playback is null)
                     {
-                        using var dialog = new SaveFileDialog { FileName = attachment.DisplayName,
-                            Filter = "All files (*.*)|*.*", Title = "Save attachment" };
-                        if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
-                        save.Enabled = false;
-                        try { await File.WriteAllBytesAsync(dialog.FileName, bytes); }
-                        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                        fileCard = new FileAttachmentCard(attachment, bytes, time, outgoing);
+                        bubble.Controls.Add(fileCard);
+                    }
+                    else
+                    {
+                        save = new Button { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
+                            BackColor = ChatTheme.Surface, ForeColor = Ink };
+                        save.Click += async (_, _) =>
                         {
-                            MessageBox.Show(FindForm(), error.Message, "Could not save attachment",
-                                MessageBoxButtons.OK, MessageBoxIcon.Error);
-                        }
-                        finally { if (!save.IsDisposed) save.Enabled = true; }
-                    };
-                    bubble.Controls.Add(save);
+                            using var dialog = new SaveFileDialog { FileName = attachment.DisplayName,
+                                Filter = "All files (*.*)|*.*", Title = "Save attachment" };
+                            if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+                            save.Enabled = false;
+                            try { await File.WriteAllBytesAsync(dialog.FileName, bytes); }
+                            catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+                            {
+                                MessageBox.Show(FindForm(), error.Message, "Could not save attachment",
+                                    MessageBoxButtons.OK, MessageBoxIcon.Error);
+                            }
+                            finally { if (!save.IsDisposed) save.Enabled = true; }
+                        };
+                        bubble.Controls.Add(save);
+                    }
+
                 }
             }
 
@@ -377,8 +387,8 @@ internal sealed class MessageFeed : Panel
                 ? new MessageText { Text = message, Font = BodyFont, ForeColor = Ink }
                 : CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
             timeLabel = CreateLabel(time, MetaFont, Muted);
-            messageLabel.Visible = voiceCard is null;
-            timeLabel.Visible = voiceCard is null && time.Length > 0;
+            messageLabel.Visible = voiceCard is null && fileCard is null;
+            timeLabel.Visible = voiceCard is null && fileCard is null && time.Length > 0;
             bubble.Controls.AddRange([messageLabel, timeLabel]);
             Controls.Add(bubble);
         }
@@ -423,6 +433,26 @@ internal sealed class MessageFeed : Panel
                 text.Invalidate();
                 Size = new Size(width, height);
                 bubble.Bounds = new Rectangle(outgoing ? width - textBubbleWidth : 0, 0, textBubbleWidth, height);
+                return;
+            }
+
+            if (fileCard is not null)
+            {
+                int inset = Math.Max(1, (int)Math.Round(4 * DeviceDpi / 96d));
+                int cardWidth = Math.Max(1, Math.Min((int)Math.Round(350 * DeviceDpi / 96d), width * 3 / 4) - inset * 2);
+                fileCard.ResizeTo(cardWidth);
+                int top = senderLabel is null ? inset : y;
+                fileCard.Location = new Point(inset, top);
+                int fileWidth = cardWidth + inset * 2;
+                int height = top + fileCard.Height + inset;
+                if (senderLabel is not null)
+                {
+                    senderLabel.Left = inset + horizontalPadding;
+                    senderLabel.Width = Math.Min(senderLabel.Width, Math.Max(1, cardWidth - horizontalPadding * 2));
+                    senderLabel.AutoEllipsis = true;
+                }
+                Size = new Size(width, height);
+                bubble.Bounds = new Rectangle(outgoing ? width - fileWidth : 0, 0, fileWidth, height);
                 return;
             }
 
