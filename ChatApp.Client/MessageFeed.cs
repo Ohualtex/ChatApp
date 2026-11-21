@@ -106,7 +106,7 @@ internal sealed class MessageFeed : Panel
             additions.Add(new MessageRow(null, title, "", outgoing: false, notice: true) { LeadingGap = 8 });
         }
         additions.Add(new MessageRow(sender, text,
-            local?.ToString("HH:mm") ?? "", outgoing, attachment: attachment, recording: recording, showSender: showSender && !grouped)
+            local?.ToString("HH:mm") ?? "", outgoing, attachment: attachment, recording: recording, showSender: showSender && !grouped, timestamp: timestamp)
             { LeadingGap = grouped ? 4 : 12 });
         AddRows(additions);
         previousSender = sender;
@@ -267,7 +267,7 @@ internal sealed class MessageFeed : Panel
         private readonly Label? senderLabel;
         private readonly Label messageLabel;
         private readonly Label timeLabel;
-        private readonly PictureBox? photo;
+        private readonly ImageMessageCard? imageCard;
         private readonly Button? save;
         private readonly Button? play;
         private readonly VoicePlayback? playback;
@@ -276,7 +276,7 @@ internal sealed class MessageFeed : Panel
         private readonly bool outgoing;
         private readonly bool notice;
 
-        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null, VoiceClip? recording = null, bool showSender = true)
+        public MessageRow(string? sender, string message, string time, bool outgoing, bool notice = false, ChatAttachment? attachment = null, VoiceClip? recording = null, bool showSender = true, DateTimeOffset? timestamp = null)
         {
             this.outgoing = outgoing;
             this.notice = notice;
@@ -329,31 +329,15 @@ internal sealed class MessageFeed : Panel
                         message = "Video · " + message;
                     if (attachment.ContentType.StartsWith("image/", StringComparison.Ordinal))
                     {
-                        try
-                        {
-                            using var stream = new MemoryStream(bytes);
-                            using var original = Image.FromStream(stream);
-                            if (original.Width <= 4096 && original.Height <= 4096)
-                            {
-                                double scale = Math.Min(1d, Math.Min(220d / original.Width, 180d / original.Height));
-                                int width = Math.Max(1, (int)Math.Round(original.Width * scale));
-                                int height = Math.Max(1, (int)Math.Round(original.Height * scale));
-                                photo = new PictureBox { Image = new Bitmap(original, width, height),
-                                    SizeMode = PictureBoxSizeMode.Zoom, Size = new Size(width, height) };
-                                bubble.Controls.Add(photo);
-                            }
-                        }
-                        catch (Exception error) when (error is ArgumentException or OutOfMemoryException)
-                        {
-                            // Unsupported image formats remain downloadable file cards.
-                        }
+                        imageCard = ImageMessageCard.TryCreate(attachment, bytes, sender ?? "Unknown", time, timestamp);
+                        if (imageCard is not null) bubble.Controls.Add(imageCard);
                     }
-                    if (photo is null && playback is null)
+                    if (imageCard is null && playback is null)
                     {
                         fileCard = new FileAttachmentCard(attachment, bytes, time, outgoing);
                         bubble.Controls.Add(fileCard);
                     }
-                    else
+                    else if (imageCard is null)
                     {
                         save = new Button { Text = "Save…", AutoSize = true, FlatStyle = FlatStyle.Flat,
                             BackColor = ChatTheme.Surface, ForeColor = Ink };
@@ -387,8 +371,8 @@ internal sealed class MessageFeed : Panel
                 ? new MessageText { Text = message, Font = BodyFont, ForeColor = Ink }
                 : CreateLabel(message, notice ? MetaFont : BodyFont, notice ? Muted : Ink);
             timeLabel = CreateLabel(time, MetaFont, Muted);
-            messageLabel.Visible = voiceCard is null && fileCard is null;
-            timeLabel.Visible = voiceCard is null && fileCard is null && time.Length > 0;
+            messageLabel.Visible = voiceCard is null && fileCard is null && imageCard is null;
+            timeLabel.Visible = voiceCard is null && fileCard is null && imageCard is null && time.Length > 0;
             bubble.Controls.AddRange([messageLabel, timeLabel]);
             Controls.Add(bubble);
         }
@@ -436,6 +420,25 @@ internal sealed class MessageFeed : Panel
                 return;
             }
 
+            if (imageCard is not null)
+            {
+                int inset = Math.Max(1, (int)Math.Round(3 * DeviceDpi / 96d));
+                imageCard.ResizeTo(Math.Max(1, width * 3 / 4 - inset * 2));
+                int top = senderLabel is null ? inset : y;
+                imageCard.Location = new Point(inset, top);
+                int imageWidth = imageCard.Width + inset * 2;
+                int height = top + imageCard.Height + inset;
+                if (senderLabel is not null)
+                {
+                    senderLabel.Left = inset;
+                    senderLabel.Width = Math.Min(senderLabel.Width, imageCard.Width);
+                    senderLabel.AutoEllipsis = true;
+                }
+                Size = new Size(width, height);
+                bubble.Bounds = new Rectangle(outgoing ? width - imageWidth : 0, 0, imageWidth, height);
+                return;
+            }
+
             if (fileCard is not null)
             {
                 int inset = Math.Max(1, (int)Math.Round(4 * DeviceDpi / 96d));
@@ -467,14 +470,6 @@ internal sealed class MessageFeed : Panel
                 return;
             }
 
-            if (photo is not null)
-            {
-                int previewWidth = Math.Max(1, Math.Min(textLimit, photo.Image!.Width));
-                int previewHeight = Math.Max(1, (int)Math.Round(photo.Image.Height * (double)previewWidth / photo.Image.Width));
-                photo.Bounds = new Rectangle(horizontalPadding, y, previewWidth, previewHeight);
-                y += photo.Height + 6;
-                textWidth = Math.Max(textWidth, photo.Width);
-            }
             PlaceLabel(messageLabel);
             if (save is not null)
             {
@@ -515,7 +510,6 @@ internal sealed class MessageFeed : Panel
             if (disposing)
             {
                 playback?.Dispose();
-                photo?.Image?.Dispose();
             }
             base.Dispose(disposing);
         }
