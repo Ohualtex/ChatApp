@@ -43,7 +43,6 @@ internal sealed partial class ChatForm : Form
     };
     private readonly TextBox search = new() { PlaceholderText = "Search chats", Dock = DockStyle.Fill };
     private readonly NavigationButton chatsNav = new() { Text = "\uE8F2", AccessibleName = "Chats" };
-    private readonly NavigationButton accountNav = new() { Text = "\uE77B", AccessibleName = "Account" };
     private readonly NavigationButton settingsNav = new() { Text = "\uE713", AccessibleName = "Settings" };
     private readonly ToolTip tips = new();
     private Control chatsContent = null!;
@@ -117,7 +116,6 @@ internal sealed partial class ChatForm : Form
         };
         chatDivider.MouseUp += (_, _) => chatDivider.Capture = false;
         settingsNav.Click += (_, _) => { ShowSettings(); SelectNavigation(settingsNav); };
-        accountNav.Click += (_, _) => { ShowSettings(); SelectNavigation(accountNav); };
         search.TextChanged += (_, _) => RefreshConversationList();
         Shown += (_, _) =>
         {
@@ -549,7 +547,7 @@ internal sealed partial class ChatForm : Form
 
     private void SelectNavigation(NavigationButton active)
     {
-        foreach (NavigationButton button in new[] { chatsNav, accountNav, settingsNav })
+        foreach (NavigationButton button in new[] { chatsNav, settingsNav })
             button.SetSelected(ReferenceEquals(button, active));
     }
 
@@ -645,7 +643,7 @@ internal sealed partial class ChatForm : Form
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
         chatsNav.Enabled = connected && !preparingAttachments;
-        settingsNav.Enabled = accountNav.Enabled = !preparingAttachments;
+        settingsNav.Enabled = !preparingAttachments;
         backToChats.Enabled = connected && !preparingAttachments;
         if (normalComposerBar is not null) normalComposerBar.Visible = !recordingBar.Active;
         if (voiceComposerHost is not null) voiceComposerHost.Visible = recordingBar.Active;
