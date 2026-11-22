@@ -2,6 +2,7 @@ using System.Drawing.Drawing2D;
 
 namespace ChatApp.Client;
 
+// Renders a borrowed image bitmap with fit-relative zoom and bounded panning.
 internal sealed class ZoomImageCanvas : Control
 {
     private Image image;
@@ -49,6 +50,7 @@ internal sealed class ZoomImageCanvas : Control
         double next = Math.Clamp(zoom * multiplier, 1, 8);
         if (Math.Abs(next - zoom) < .00001) return;
         RectangleF before = ImageBounds();
+        // Track the image point under the anchor so zooming keeps it in place before clamping.
         double relativeX = (anchor.X - before.Left) / before.Width;
         double relativeY = (anchor.Y - before.Top) / before.Height;
         zoom = next;
@@ -70,6 +72,7 @@ internal sealed class ZoomImageCanvas : Control
     private void ClampPan()
     {
         double scale = FitScale() * zoom;
+        // Limit panning to the overflow on each axis. An axis that fits remains centered.
         float maxX = Math.Max(0, (float)(image.Width * scale - ClientSize.Width) / 2);
         float maxY = Math.Max(0, (float)(image.Height * scale - ClientSize.Height) / 2);
         pan.X = Math.Clamp(pan.X, -maxX, maxX);

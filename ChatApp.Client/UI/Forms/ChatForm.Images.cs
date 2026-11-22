@@ -17,6 +17,8 @@ internal sealed partial class ChatForm
         HideAttachmentDrop();
         Controls.Add(viewer);
         viewer.BringToFront();
+        // Keep the existing controls alive to preserve drafts and scroll position,
+        // but remove the covered layout from mouse and keyboard interaction.
         imageCoveredLayout.Visible = false;
         imageCoveredLayout.Enabled = false;
         viewer.Select();
@@ -36,6 +38,7 @@ internal sealed partial class ChatForm
             layout.Enabled = true;
             layout.Visible = true;
         }
+        // A disconnect may have removed the source card while the viewer was open.
         if (imageReturnFocus is { IsDisposed: false, CanFocus: true } source) source.Focus();
         else composer.Focus();
         imageCoveredLayout = null;

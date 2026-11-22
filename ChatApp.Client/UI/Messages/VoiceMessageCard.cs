@@ -2,6 +2,7 @@ using System.Drawing.Drawing2D;
 
 namespace ChatApp.Client;
 
+// Shows the voice waveform and playback progress for a clip owned by conversation history.
 internal sealed class VoiceMessageCard : Control
 {
     private static readonly Color Progress = Color.FromArgb(83, 191, 229);

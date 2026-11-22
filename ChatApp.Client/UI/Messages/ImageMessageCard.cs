@@ -2,6 +2,7 @@ using System.Drawing.Drawing2D;
 
 namespace ChatApp.Client;
 
+// Owns a reduced preview for the message feed and hands original image bytes to the gallery.
 internal sealed class ImageMessageCard : Control
 {
     private static readonly Font ClockFont = new("Segoe UI", 9);

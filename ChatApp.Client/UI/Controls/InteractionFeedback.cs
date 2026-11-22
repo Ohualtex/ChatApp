@@ -30,6 +30,7 @@ internal sealed class InteractionFeedback
         {
             if (e.Button == MouseButtons.Left) { pointerDown = false; owner.Invalidate(); }
         };
+        // Clear the pressed state when capture is lost before a mouse-up event arrives.
         owner.MouseCaptureChanged += (_, _) =>
         {
             if (!owner.Capture) { pointerDown = false; owner.Invalidate(); }

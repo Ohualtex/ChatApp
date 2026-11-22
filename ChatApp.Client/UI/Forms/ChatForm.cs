@@ -4,6 +4,7 @@ using System.Text.Json;
 
 namespace ChatApp.Client;
 
+// Coordinates the chat session and the active conversation. Companion files build the layout and host media workflows.
 internal sealed partial class ChatForm : Form
 {
     private static readonly Icon WindowIcon = new(typeof(ChatForm), "Assets.app.ico");
@@ -310,6 +311,7 @@ internal sealed partial class ChatForm : Form
     {
         if (preparingAttachments) return;
         if (connection is null || connecting || sending || !selected.Online || recordingBar.Active) return;
+        // Bind the recording to the conversation and connection present when capture starts.
         recordingDestination = selected;
         recordingConnection = connection;
         recordingBar.Start();
@@ -345,6 +347,7 @@ internal sealed partial class ChatForm : Form
 
     private void ClearVoiceHistory()
     {
+        // Dispose playback controls before deleting the temporary files owned by history clips.
         messages.ClearMessages();
         foreach (Conversation chat in conversations.Values)
             foreach (ChatPacket packet in chat.Messages) packet.Recording?.Dispose();
@@ -443,6 +446,7 @@ internal sealed partial class ChatForm : Form
         return chat;
     }
 
+    // Store each packet in its conversation. Only the selected conversation updates the visible feed.
     private void ReceiveMessage(ChatPacket packet)
     {
         bool outgoing = packet.Name == joinedName;
@@ -460,6 +464,7 @@ internal sealed partial class ChatForm : Form
         RefreshConversationList();
     }
 
+    // Save the current draft before restoring the next conversation's history and draft.
     private void SelectConversation(Conversation chat)
     {
         if (recordingBar.Active && !ReferenceEquals(chat, selected))

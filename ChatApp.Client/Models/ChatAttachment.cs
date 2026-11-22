@@ -6,6 +6,7 @@ internal sealed record ChatAttachment(string FileName, string ContentType, strin
 {
     public const int MaximumBytes = 10 * 1024 * 1024;
 
+    // Validate the encoded length before allocation, then check the actual decoded size.
     public byte[] GetBytes()
     {
         if (Data.Length > ((MaximumBytes + 2) / 3) * 4)
@@ -18,6 +19,7 @@ internal sealed record ChatAttachment(string FileName, string ContentType, strin
         return bytes;
     }
 
+    // Read and revalidate the file at send time because its contents may have changed since review.
     public static async Task<ChatAttachment> FromFileAsync(string path, CancellationToken token)
     {
         await using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 81920, true);

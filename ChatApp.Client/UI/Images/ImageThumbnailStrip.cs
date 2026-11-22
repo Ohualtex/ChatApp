@@ -19,6 +19,7 @@ internal sealed class ImageThumbnailStrip : Control
         AccessibleName = "Conversation images";
         AccessibleRole = AccessibleRole.List;
         interaction = new InteractionFeedback(this);
+        // Own small copies of existing previews; chat rows can be disposed while this layer is open.
         foreach (ImageGalleryItem item in items)
         {
             Image source = item.Preview;

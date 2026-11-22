@@ -31,6 +31,7 @@ defmodule ChatApp.Listener do
       :binary,
       ip: ip,
       active: false,
+      # Match the client framing: each newline completes one JSON packet.
       packet: :line,
       packet_size: 14_100_000,
       buffer: 14_100_000,
@@ -62,6 +63,7 @@ defmodule ChatApp.Listener do
             end
           end)
 
+        # The handler waits until socket ownership has transferred before reading.
         case :gen_tcp.controlling_process(socket, handler) do
           :ok ->
             send(handler, {:socket, socket})
@@ -224,6 +226,7 @@ defmodule ChatApp.Connection do
   end
 end
 
+# Serializes membership and message routing in one GenServer.
 defmodule ChatApp.Room do
   use GenServer
   require Logger
@@ -244,6 +247,7 @@ defmodule ChatApp.Room do
   def init(members), do: {:ok, members}
 
   @impl true
+  # Acknowledge the join before publishing presence so the client can establish its session first.
   def handle_call({:join, socket, name}, {pid, _tag}, members) do
     if Enum.any?(members, fn {_pid, member} ->
          String.downcase(member.name) == String.downcase(name)
@@ -315,6 +319,8 @@ defmodule ChatApp.Room do
         if is_nil(recipient) or target != nil do
           abort_voice(Map.get(sender, :upload), members)
 
+          # Keep one recipient set for the upload so all chunks follow the start packet.
+          # Include the sender so its history receives the same completed recording.
           recipients =
             if is_nil(recipient), do: Map.keys(members), else: Enum.uniq([pid, elem(target, 0)])
 
@@ -348,6 +354,7 @@ defmodule ChatApp.Room do
       %{upload: %{id: ^id} = upload} = sender ->
         complete = is_nil(data)
 
+        # Accept completion only at the announced byte count; chunks must never exceed it.
         valid =
           if complete,
             do: upload.received == upload.length,
@@ -403,6 +410,7 @@ defmodule ChatApp.Room do
   end
 
   @impl true
+  # Use process monitor notifications to remove disconnected members and clean up unfinished uploads.
   def handle_info({:DOWN, monitor, :process, pid, _reason}, members) do
     case Map.fetch(members, pid) do
       {:ok, %{monitor: ^monitor, name: name}} ->

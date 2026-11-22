@@ -5,6 +5,7 @@ using static ChatApp.Client.WaveInput;
 
 namespace ChatApp.Client;
 
+// Captures PCM audio through WinMM and writes it directly to a temporary WAV file.
 internal sealed class MicrophoneRecorder : IDisposable
 {
     private const int SampleRate = 22050, BufferSize = 8192;
@@ -41,6 +42,7 @@ internal sealed class MicrophoneRecorder : IDisposable
         try
         {
             file = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.Read);
+            // Reserve the PCM header; its final data length is known only when recording stops.
             file.Write(new byte[44]);
             var format = new WaveFormat { FormatTag = 1, Channels = 1, SamplesPerSecond = SampleRate,
                 AverageBytesPerSecond = SampleRate * 2, BlockAlignment = 2, BitsPerSample = 16 };
@@ -112,6 +114,7 @@ internal sealed class MicrophoneRecorder : IDisposable
         }
     }
 
+    // Finalize the WAV header and hand ownership of the temporary file to the returned clip.
     public VoiceClip Finish()
     {
         if (device == IntPtr.Zero || file is null) throw new IOException("Recording has not started.");
@@ -140,6 +143,7 @@ internal sealed class MicrophoneRecorder : IDisposable
     {
         if (device != IntPtr.Zero)
         {
+            // Return queued native buffers before unpreparing headers and freeing their memory.
             WaveInReset(device);
             foreach (var buffer in buffers)
                 WaveInUnprepareHeader(device, buffer.Header, (uint)Marshal.SizeOf<WaveHeader>());

@@ -91,6 +91,7 @@ internal sealed class VoiceRecordingBar : RoundedPanel
                 clock.Text = WaveAudio.FormatTime(clip.Duration);
                 pause.Action = RecordingAction.Resume;
             }
+            // Keep the finished clip available for another attempt when sending returns false.
             if (clip is not null && await SendRequested(clip)) Cancel();
         }
         catch (IOException error) { Fail(error); }

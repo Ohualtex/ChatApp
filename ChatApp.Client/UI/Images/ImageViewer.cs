@@ -25,6 +25,7 @@ internal sealed class ImageViewer : UserControl
     {
         if (gallery.Count == 0) throw new ArgumentException("The image gallery is empty.", nameof(gallery));
         if (index < 0 || index >= gallery.Count) throw new ArgumentOutOfRangeException(nameof(index));
+        // Freeze the opened conversation's gallery so incoming messages cannot shift its indices.
         items = gallery.ToArray();
         currentIndex = index;
         image = Decode(CurrentItem);
@@ -71,6 +72,7 @@ internal sealed class ImageViewer : UserControl
         UpdateZoomControls();
     }
 
+    // Copy the decoded bitmap so it can outlive the temporary input stream.
     private static Bitmap Decode(ImageGalleryItem item)
     {
         using var stream = new MemoryStream(item.Bytes);
@@ -102,6 +104,7 @@ internal sealed class ImageViewer : UserControl
             Bitmap old = image;
             image = replacement;
             currentIndex = target;
+            // Swap the source and reset pan/zoom before releasing the previous full-size bitmap.
             picture.SetImage(image);
             old.Dispose();
             UpdateCurrentImage();

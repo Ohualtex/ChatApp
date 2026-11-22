@@ -30,6 +30,7 @@ internal sealed partial class ChatForm
         control.AllowDrop = true;
         control.DragEnter += AttachmentDragOver;
         control.DragOver += AttachmentDragOver;
+        // Defer hiding the overlay so moving between nested controls does not flash it off and on.
         control.DragLeave += (_, _) =>
         {
             int generation = attachmentDragGeneration;
@@ -100,6 +101,7 @@ internal sealed partial class ChatForm
     private async Task ReviewDroppedAttachmentsAsync(string[] paths)
     {
         if (!CanAcceptFileDrop() || connection is not { } current) return;
+        // Keep the destination fixed while file inspection and the review dialog are in progress.
         Conversation destination = selected;
         CancellationToken token = closing.Token;
         preparingAttachments = true;

@@ -6,8 +6,10 @@ using System.Text.Json.Serialization;
 
 namespace ChatApp.Client;
 
+// Carries either the total byte length at upload start or a Base64 block during transfer.
 internal sealed record VoiceChunk(string Id, string? Data = null, long? Length = null);
 
+// Describes the JSON envelope. Recording is local state populated after the WAV is assembled.
 internal sealed record ChatPacket(string Type, string? Name = null, string? Message = null, DateTimeOffset? Timestamp = null,
     string[]? Users = null, string? Recipient = null, ChatAttachment? Attachment = null, VoiceChunk? Voice = null,
     [property: JsonIgnore] VoiceClip? Recording = null);
@@ -18,6 +20,7 @@ internal sealed class ChatConnection : IDisposable
     private readonly TcpClient tcp = new();
     private StreamReader? reader;
     private StreamWriter? writer;
+    // Serialize writes so concurrent UI actions cannot interleave JSON packets.
     private readonly SemaphoreSlim writeGate = new(1, 1);
     private readonly Dictionary<(string, string), IncomingVoice> incoming = [];
 
@@ -48,10 +51,13 @@ internal sealed class ChatConnection : IDisposable
     private async Task WritePacketAsync(ChatPacket packet, CancellationToken token)
     {
         StreamWriter output = writer ?? throw new InvalidOperationException("Connect before sending messages.");
+        // TCP is a byte stream; the newline marks the end of one JSON packet.
         await output.WriteLineAsync(JsonSerializer.Serialize(packet, Json).AsMemory(), token);
         await output.FlushAsync(token);
     }
 
+    // Hold the write gate for the entire start/chunks/end sequence and stream from disk.
+    // This preserves upload order without loading a long recording into memory.
     public async Task SendVoiceAsync(VoiceClip clip, string? recipient, CancellationToken token)
     {
         await writeGate.WaitAsync(token);
@@ -71,6 +77,7 @@ internal sealed class ChatConnection : IDisposable
         finally { writeGate.Release(); }
     }
 
+    // Consume transfer packets internally so the UI receives one item per completed voice message.
     public async Task<ChatPacket?> ReadAsync(CancellationToken token)
     {
         StreamReader input = reader ?? throw new InvalidOperationException("Connect before reading messages.");
@@ -82,6 +89,7 @@ internal sealed class ChatConnection : IDisposable
                 ?? throw new IOException("The server sent an empty message.");
             if (packet.Type is not ("voice_start" or "voice_chunk" or "voice_end" or "voice_abort")) return packet;
             if (packet.Voice is not { } voice || packet.Name is null) continue;
+            // Scope upload IDs by sender because several clients can upload concurrently.
             var key = (packet.Name, voice.Id);
             try
             {
@@ -161,6 +169,7 @@ internal sealed class ChatConnection : IDisposable
             if (file.Position != expected) throw new IOException("The recording is incomplete.");
             file.Dispose();
             var clip = new VoiceClip(path);
+            // The completed clip now owns the file; disposing this transfer must keep it.
             retained = true;
             return clip;
         }

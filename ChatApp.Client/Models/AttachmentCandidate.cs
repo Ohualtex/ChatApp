@@ -11,6 +11,7 @@ internal sealed record AttachmentCandidate(string Path, string Name, long Length
         }
     }
 
+    // Check readability and size without loading the file contents before the user confirms sending.
     internal static AttachmentCandidate Inspect(string path)
     {
         string name = path;

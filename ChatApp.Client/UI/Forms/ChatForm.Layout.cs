@@ -15,6 +15,7 @@ internal sealed partial class ChatForm
     private int ClampSidebarWidth(int desired)
     {
         int available = chatArea?.ClientSize.Width ?? 0;
+        // Keep the list readable while reserving space for the divider and conversation.
         int minimum = ScaleLayout(280);
         int maximum = Math.Max(minimum, Math.Min(available / 2, available - ScaleLayout(365)));
         return Math.Clamp(desired, minimum, maximum);
@@ -30,6 +31,8 @@ internal sealed partial class ChatForm
             int width = chatArea.ClientSize.Width;
             int height = chatArea.ClientSize.Height;
             bool compact = width < ScaleLayout(280 + 5 + 360);
+            // Choose the initial narrow view only when entering compact mode; later resizes
+            // must preserve the user's choice between the list and the conversation.
             if (compact && !compactLayout)
                 showingList = settingsContent.Visible || connection is null || connecting;
             compactLayout = compact;
@@ -225,6 +228,7 @@ internal sealed partial class ChatForm
         return layout;
     }
 
+    // Use the native edit control's cue banner so the composer can show a hint while focused.
     private void SetComposerHint() => SendMessage(composer.Handle, 0x1501, new IntPtr(1), "Type a message");
 
     [DllImport("user32.dll", EntryPoint = "SendMessageW", CharSet = CharSet.Unicode)]

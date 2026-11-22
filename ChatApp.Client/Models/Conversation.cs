@@ -2,6 +2,7 @@ namespace ChatApp.Client;
 
 internal sealed class Conversation(string? peer)
 {
+    // A null peer identifies the shared room. A named peer identifies a private conversation.
     public string? Peer { get; } = peer;
     public string Title => Peer ?? "General";
     public List<ChatPacket> Messages { get; } = [];

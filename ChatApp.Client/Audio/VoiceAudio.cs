@@ -27,6 +27,7 @@ internal static class WaveAudio
         while (stream.Position + 8 <= stream.Length)
         {
             uint id = reader.ReadUInt32(), size = reader.ReadUInt32();
+            // RIFF chunks are word-aligned; odd-sized chunks include one padding byte.
             long next = stream.Position + size + (size & 1);
             if (next > stream.Length) throw new IOException("The recording is incomplete.");
             if (id == 0x20746D66)
@@ -67,6 +68,7 @@ internal sealed class VoiceClip : IDisposable
         Path = path;
     }
 
+    // VoiceClip owns this temporary file; callers must not pass an original user file.
     public void Dispose() => DeleteTemporary(Path);
 
     public static void DeleteTemporary(string path)
@@ -78,6 +80,7 @@ internal sealed class VoiceClip : IDisposable
 
 internal sealed class VoicePlayback : IDisposable
 {
+    // All cards share one active player so starting another message stops the previous one.
     private static VoicePlayback? active;
     private readonly System.Windows.Forms.Timer timer = new();
     private SoundPlayer? player;
@@ -115,6 +118,7 @@ internal sealed class VoicePlayback : IDisposable
         }
     }
 
+    // File-backed playback uses an MCI alias so the recording can be paused and resumed.
     public void Play(VoiceClip clip)
     {
         active?.Stop();

@@ -51,6 +51,7 @@ internal sealed class MessageScrollBar : Control
 
     private int Scale(int pixels) => Math.Max(1, (int)Math.Round(pixels * DeviceDpi / 96d));
 
+    // Size the thumb by the visible fraction and map the current offset onto the remaining track.
     internal Rectangle ThumbBounds()
     {
         if (MaximumOffset == 0 || Height < 2) return Rectangle.Empty;

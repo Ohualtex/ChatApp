@@ -11,6 +11,7 @@ internal static class ChatWallpaper
     {
         using var background = new SolidBrush(ChatTheme.Canvas);
         graphics.FillRectangle(background, bounds);
+        // The footer supplies its vertical offset to continue the same fixed wallpaper below the feed.
         graphics.DrawImageUnscaled(Wallpaper, 0, -verticalOffset);
     }
 

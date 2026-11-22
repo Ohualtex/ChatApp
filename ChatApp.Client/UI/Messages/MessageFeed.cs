@@ -28,6 +28,7 @@ internal sealed class MessageFeed : Panel
         Dock = DockStyle.Fill;
         DoubleBuffered = true;
         ResizeRedraw = true;
+        // Move message rows ourselves so native scrolling cannot shift the wallpaper.
         AutoScroll = false;
         Padding = new Padding(18, 12, 18, 12);
         BackColor = Canvas;
@@ -124,10 +125,12 @@ internal sealed class MessageFeed : Panel
 
     private void AddRows(IEnumerable<MessageRow> additions)
     {
+        // New messages should not pull the viewport away from older messages being read.
         bool follow = FollowingNewest;
         var pending = additions.ToArray();
         foreach (MessageRow row in pending)
         {
+            // Keep new rows hidden until layout assigns their final positions.
             row.Visible = false;
             rows.Add(row);
             if (row.ImageCard is { } card)
@@ -163,6 +166,7 @@ internal sealed class MessageFeed : Panel
             bool hadScrollbar = contentHeight > viewportHeight;
             contentHeight = MeasureRows(RowWidth(hadScrollbar));
             bool overflow = contentHeight > ClientSize.Height;
+            // A scrollbar changes wrapping width, so measure again if its visibility changed.
             if (overflow != hadScrollbar) contentHeight = MeasureRows(RowWidth(overflow));
             int RowWidth(bool narrow) => Math.Max(1, available - (narrow ? scrollWidth : 0));
             viewportHeight = ClientSize.Height;
@@ -225,6 +229,7 @@ internal sealed class MessageFeed : Panel
             foreach (string paragraph in Text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n'))
             {
                 if (paragraph.Length == 0) { lines.Add(""); continue; }
+                // Wrap at text-element boundaries to keep combining marks and emoji together.
                 int[] boundaries = System.Globalization.StringInfo.ParseCombiningCharacters(paragraph);
                 int start = 0;
                 while (start < boundaries.Length)
@@ -259,6 +264,7 @@ internal sealed class MessageFeed : Panel
         {
             for (int index = 0; index < lines.Count; index++)
                 TextRenderer.DrawText(e.Graphics, lines[index], Font, new Point(0, index * lineHeight), ForeColor, Flags);
+            // Paint text and time together so overlapping native labels cannot hide either one.
             TextRenderer.DrawText(e.Graphics, ClockText, MetaFont, ClockBounds.Location, Muted, Flags);
         }
     }
