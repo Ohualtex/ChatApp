@@ -4,9 +4,10 @@ A dark-themed Windows desktop messenger built with C# and an Elixir TCP server. 
 
 ## Features
 
+- **Welcome screen** with display name, server address and port fields, keyboard submission and inline connection feedback.
 - **Shared and private conversations** with online status, unread counts, message previews and a separate draft for each conversation.
 - **Resizable chat sidebar** with search by conversation name or latest message. Narrow windows switch between the conversation and the chat list using a back arrow.
-- **Message groups and date separators**, with compact timestamps and wrapping for long messages.
+- **Message groups and date separators**, with compact timestamps and wrapping for long messages. Use the down arrow to return to the latest message after scrolling up.
 - **File sharing** through the paperclip button or drag and drop. Dropped files are reviewed before sending; remove unwanted or invalid entries, then choose **Send**, or cancel with **Esc**.
 - **Attachment cards** showing the file name, type and size, with **Open** for supported types and **Save as…**.
 - **Image gallery** covering the application window, with previous/next arrows, a thumbnail strip and a green outline around the selected image. Zoom, pan, save the current image, or close the viewer to return to the conversation.
@@ -37,7 +38,9 @@ In a separate terminal at the repository root, start a client:
 dotnet run --project ChatApp.Client/ChatApp.Client.csproj
 ```
 
-Run the client command in another terminal to open a second session. Enter different display names and connect both clients to **127.0.0.1**, port **5050**. Keep the server running while chatting.
+On the welcome screen, enter a **Display name**. To connect to a server on the same computer, leave **Server address** at **127.0.0.1** and **Port** at **5050**. Select **Connect** or press **Enter**. If the connection fails, the welcome screen shows the error and keeps your entries so you can correct them and try again.
+
+To try messaging, run the client command in another terminal and connect with a different display name. Keep the server running while chatting.
 
 To build the client without launching it:
 
@@ -48,7 +51,7 @@ dotnet build ChatApp.Client/ChatApp.Client.csproj
 ## Using the app
 
 1. Select **General** to message everyone connected to the server, or select a person for a private conversation.
-2. Type a message and press **Enter** or click the send icon. The microphone button appears when the text field is empty.
+2. Type a message and press **Enter** or click the send icon. The microphone button appears when the text field is empty. While reading older messages, select the down arrow above the composer to return to the latest message.
 3. Use the paperclip to select a file, or drop one or more files onto the open conversation. Dragged files open a review window and are sent only after confirmation.
 4. Click an image to open the gallery in the same window. Use the side arrows or thumbnails to browse images from that conversation. The toolbar provides zoom, fit, save and close controls.
 5. Click the microphone to record. Pause or resume as needed, discard with the trash button, or send with the green arrow. Recording has no fixed time cutoff; WAV format limits and available disk space still apply.
@@ -83,7 +86,7 @@ $env:CHAT_PORT = "5050"
 mix run --no-halt
 ```
 
-Clients on the same network should enter the server computer's address and port. Allow incoming TCP connections to that port in the server computer's firewall as needed.
+Clients on the same network should enter the server computer's address and port on the welcome screen. Enter a whole port number from **1** to **65535**. Allow incoming TCP connections to that port in the server computer's firewall as needed.
 
 | Server setting | Default | Purpose |
 | --- | --- | --- |
@@ -102,7 +105,7 @@ ChatApp/
 │   ├── Networking/         # TCP connection, JSON packets and voice transfer
 │   ├── Audio/              # Microphone capture, WAV handling and playback
 │   ├── UI/
-│   │   ├── Forms/          # Main window, attachment flow and gallery hosting
+│   │   ├── Forms/          # Main window, welcome screen, attachments and gallery
 │   │   ├── Controls/       # Shared buttons, interaction states and avatars
 │   │   ├── Messages/       # Message feed, scrolling and attachment cards
 │   │   ├── Attachments/    # Drop overlay and attachment review dialog
@@ -135,7 +138,7 @@ The screenshots use fictional conversations and generated sample audio.
 
 **Join a server**
 
-![ChatApp login screen with an empty display name and local server settings](docs/screenshots/join.png)
+![ChatApp welcome screen with an empty display name and the default local server address and port](docs/screenshots/join.png)
 
 **Shared conversation**
 
