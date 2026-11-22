@@ -42,8 +42,8 @@ internal sealed partial class ChatForm : Form
         BackColor = ChatTheme.Canvas, ForeColor = Ink, AccessibleName = "Conversations", DrawMode = DrawMode.OwnerDrawFixed, ItemHeight = 76
     };
     private readonly TextBox search = new() { PlaceholderText = "Search chats", Dock = DockStyle.Fill };
-    private readonly NavigationButton chatsNav = new() { Text = "\uE8F2", AccessibleName = "Chats" };
-    private readonly NavigationButton settingsNav = new() { Text = "\uE713", AccessibleName = "Settings" };
+    private readonly NavigationButton chatsNav = new(useChatIcon: true) { AccessibleName = "Chats" };
+    private readonly NavigationButton settingsNav = new() { AccessibleName = "Settings" };
     private readonly ToolTip tips = new();
     private Control chatsContent = null!;
     private Control settingsContent = null!;

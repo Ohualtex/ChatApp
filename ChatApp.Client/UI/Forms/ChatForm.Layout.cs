@@ -88,19 +88,18 @@ internal sealed partial class ChatForm
         membersToggle.AccessibleName = "Conversation name";
         membersToggle.Dock = DockStyle.Fill;
         var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, RowCount = 1 };
-        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 64));
+        layout.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 80));
         layout.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         var rail = new TableLayoutPanel { Dock = DockStyle.Fill, RowCount = 3, ColumnCount = 1,
-            BackColor = ChatTheme.Surface, Padding = new Padding(8, 12, 8, 12), Margin = Padding.Empty };
-        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+            BackColor = ChatTheme.Surface, Padding = new Padding(12, 12, 12, 12), Margin = Padding.Empty };
+        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         rail.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 48));
+        rail.RowStyles.Add(new RowStyle(SizeType.Absolute, 58));
         rail.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
         foreach (Button button in new[] { chatsNav, settingsNav })
         {
             StyleButton(button, primary: false);
-            button.Font = SidebarIconFont;
             button.Padding = Padding.Empty;
             button.Margin = new Padding(0, 2, 0, 2);
             button.AutoSize = false;
