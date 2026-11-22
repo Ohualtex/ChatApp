@@ -11,6 +11,8 @@ internal static class ChatTheme
     public static readonly Color Accent = Color.FromArgb(37, 211, 102);
     public static readonly Color Ink = Color.FromArgb(242, 244, 243);
     public static readonly Color Muted = Color.FromArgb(166, 174, 170);
+    public static readonly Color FocusSurface = Color.FromArgb(48, 83, 69);
+    public static readonly Color FocusInk = Color.FromArgb(121, 187, 157);
     public static readonly Color Sent = Color.FromArgb(21, 76, 60);
 
     public static void DarkTitle(Form form)

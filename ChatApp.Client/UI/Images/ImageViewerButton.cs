@@ -19,14 +19,10 @@ internal sealed class ImageViewerButton(ImageViewerAction action) : InteractiveB
         if (arrow || Hovered || Pressed || KeyboardFocused)
         {
             Color color = Enabled && Pressed ? Color.FromArgb(48, 51, 50)
-                : Enabled && (Hovered || KeyboardFocused) ? ChatTheme.Raised : Color.FromArgb(19, 20, 20);
+                : KeyboardFocused ? ChatTheme.FocusSurface
+                : Enabled && Hovered ? ChatTheme.Raised : Color.FromArgb(19, 20, 20);
             using var fill = new SolidBrush(color);
             g.FillEllipse(fill, circle);
-        }
-        if (KeyboardFocused)
-        {
-            using var focus = new Pen(ChatTheme.Muted, scale);
-            g.DrawEllipse(focus, circle);
         }
         Color ink = Enabled ? ChatTheme.Ink : Color.FromArgb(79, 84, 81);
         using var pen = new Pen(ink, 1.8f * scale) { StartCap = LineCap.Round, EndCap = LineCap.Round, LineJoin = LineJoin.Round };

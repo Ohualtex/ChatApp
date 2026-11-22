@@ -35,15 +35,11 @@ internal sealed class RecordingButton : InteractiveButton
         {
             Color surface = greenSurface
                 ? !Enabled ? ChatTheme.Muted : Pressed ? Color.FromArgb(28, 171, 82)
-                    : Hovered ? Color.FromArgb(52, 225, 119) : ChatTheme.Accent
-                : Pressed ? Color.FromArgb(32, 35, 34) : Color.FromArgb(58, 61, 60);
+                    : KeyboardFocused ? ChatTheme.FocusInk : Hovered ? Color.FromArgb(52, 225, 119) : ChatTheme.Accent
+                : Pressed ? Color.FromArgb(32, 35, 34)
+                    : KeyboardFocused ? ChatTheme.FocusSurface : Color.FromArgb(58, 61, 60);
             using var fill = new SolidBrush(surface);
             e.Graphics.FillEllipse(fill, circle);
-        }
-        if (KeyboardFocused && Enabled)
-        {
-            using var outline = new Pen(ChatTheme.Muted, 1);
-            e.Graphics.DrawEllipse(outline, circle);
         }
         if (Pressed) y += 1;
         Color ink = !Enabled ? ChatTheme.Muted : greenSurface ? ChatTheme.Canvas

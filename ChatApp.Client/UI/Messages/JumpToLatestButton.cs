@@ -23,7 +23,8 @@ internal sealed class JumpToLatestButton : InteractiveButton
     {
         Graphics g = e.Graphics;
         g.Clear(Pressed ? ChatTheme.Surface
-            : Hovered || KeyboardFocused ? Color.FromArgb(58, 61, 60) : ChatTheme.Raised);
+            : KeyboardFocused ? ChatTheme.FocusSurface
+            : Hovered ? Color.FromArgb(58, 61, 60) : ChatTheme.Raised);
         g.SmoothingMode = SmoothingMode.AntiAlias;
         float scale = DeviceDpi / 96f;
         float x = Width / 2f, y = Height / 2f + (Pressed ? scale : 0);
@@ -38,11 +39,5 @@ internal sealed class JumpToLatestButton : InteractiveButton
             new(x + 6 * scale, y - 3 * scale)
         });
 
-        if (KeyboardFocused)
-        {
-            float inset = 3 * scale;
-            using var focus = new Pen(ChatTheme.Muted, scale);
-            g.DrawEllipse(focus, inset, inset, Width - inset * 2, Height - inset * 2);
-        }
     }
 }

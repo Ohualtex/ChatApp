@@ -93,13 +93,9 @@ internal sealed class VoiceMessageCard : Control
             var circle = new RectangleF(x - 17, y - 17, 34, 34);
             if (Hovered || Pressed || KeyboardFocused)
             {
-                using var fill = new SolidBrush(Pressed ? Color.FromArgb(24, 42, 35) : Color.FromArgb(65, 89, 80));
+                using var fill = new SolidBrush(Pressed ? Color.FromArgb(24, 42, 35)
+                    : KeyboardFocused ? ChatTheme.FocusSurface : Color.FromArgb(65, 89, 80));
                 e.Graphics.FillEllipse(fill, circle);
-            }
-            if (KeyboardFocused)
-            {
-                using var pen = new Pen(ChatTheme.Muted);
-                e.Graphics.DrawEllipse(pen, circle);
             }
             if (Pressed) y += 1;
             using var ink = new SolidBrush(Enabled ? ChatTheme.Ink : ChatTheme.Muted);

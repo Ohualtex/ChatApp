@@ -105,7 +105,7 @@ internal sealed class ZoomImageCanvas : Control
         e.Graphics.DrawImage(image, ImageBounds());
         if (Focused && ShowFocusCues && Width > 3 && Height > 3)
         {
-            using var outline = new Pen(ChatTheme.Muted);
+            using var outline = new Pen(ChatTheme.FocusInk);
             e.Graphics.DrawRectangle(outline, 1, 1, Width - 3, Height - 3);
         }
     }

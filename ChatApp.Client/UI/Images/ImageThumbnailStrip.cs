@@ -76,7 +76,7 @@ internal sealed class ImageThumbnailStrip : Control
         }
         if (Focused && ShowFocusCues)
         {
-            using var focus = new Pen(ChatTheme.Muted);
+            using var focus = new Pen(ChatTheme.FocusInk);
             g.DrawRectangle(focus, 1, 2, Math.Max(0, Width - 3), Math.Max(0, Height - 4));
         }
     }

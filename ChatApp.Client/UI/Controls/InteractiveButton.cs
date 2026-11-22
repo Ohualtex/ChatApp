@@ -34,14 +34,10 @@ internal class InteractiveButton : Button
         shape.CloseFigure();
         e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
         Color surface = Pressed ? Mix(BackColor, Color.Black, .18f)
-            : Hovered || KeyboardFocused ? Mix(BackColor, Color.White, .1f) : BackColor;
+            : KeyboardFocused ? Mix(BackColor, ChatTheme.FocusInk, .28f)
+            : Hovered ? Mix(BackColor, Color.White, .1f) : BackColor;
         using var fill = new SolidBrush(surface);
         e.Graphics.FillPath(fill, shape);
-        if (KeyboardFocused)
-        {
-            using var pen = new Pen(ChatTheme.Muted);
-            e.Graphics.DrawPath(pen, shape);
-        }
         Rectangle text = ClientRectangle;
         if (Pressed) text.Offset(0, Math.Max(1, (int)Math.Round(DeviceDpi / 96d)));
         TextRenderer.DrawText(e.Graphics, Text, Font, text, Enabled ? ForeColor : ChatTheme.Muted,
