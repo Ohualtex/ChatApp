@@ -33,15 +33,21 @@ internal sealed partial class ChatForm
             bool compact = width < ScaleLayout(280 + 5 + 360);
             // Choose the initial narrow view only when entering compact mode; later resizes
             // must preserve the user's choice between the list and the conversation.
-            if (compact && !compactLayout)
-                showingList = settingsContent.Visible || connection is null || connecting;
+            bool inSettings = settingsPage != SettingsPage.Closed;
+            if (compact && !compactLayout && !inSettings)
+                showingList = connection is null || connecting;
             compactLayout = compact;
             bool connected = connection is not null && !connecting;
-            bool listOnly = compact && (settingsContent.Visible || (connected && showingList));
+            bool showSettingsDetail = inSettings && (!compact || settingsPage != SettingsPage.Overview);
+            bool listOnly = compact && (inSettings ? !showSettingsDetail : connected && showingList);
             membersDrawer.Visible = !compact || listOnly;
-            chatContent.Visible = !compact || !listOnly;
+            chatsContent.Visible = !inSettings;
+            settingsContent.Visible = inSettings;
+            settingsDetails.Visible = showSettingsDetail;
+            settingsBack.Visible = compact && showSettingsDetail;
+            chatContent.Visible = !inSettings && (!compact || !listOnly);
             chatDivider.Visible = !compact;
-            backToChats.Visible = compact && !listOnly && connected;
+            backToChats.Visible = !inSettings && compact && !listOnly && connected;
             if (compact)
             {
                 chatDivider.Capture = false;
@@ -57,6 +63,7 @@ internal sealed partial class ChatForm
                 chatContent.Bounds = new Rectangle(sidebarWidth + dividerWidth, 0,
                     Math.Max(0, width - sidebarWidth - dividerWidth), height);
             }
+            settingsDetails.Bounds = chatContent.Bounds;
         }
         finally
         {
@@ -207,6 +214,7 @@ internal sealed partial class ChatForm
         main.SizeChanged += (_, _) => LayoutChatColumns();
         membersDrawer.Dock = DockStyle.None;
         main.Controls.Add(conversationView);
+        main.Controls.Add(BuildSettingsDetails());
         main.Controls.Add(membersDrawer);
         main.Controls.Add(chatDivider);
         layout.Controls.Add(rail, 0, 0);
@@ -243,6 +251,26 @@ internal sealed partial class ChatForm
         layout.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
         layout.Controls.Add(new Label { Text = "Chats", AutoSize = true, Font = SidebarTitleFont, Anchor = AnchorStyles.Left, Margin = new Padding(10, 0, 0, 0) }, 0, 0);
 
+        search.AccessibleName = "Search chats";
+        var searchShell = BuildSidebarSearch(search);
+        layout.Controls.Add(searchShell, 0, 1);
+        layout.SetColumnSpan(searchShell, 2);
+        memberCount.Margin = new Padding(12, 4, 0, 0);
+        layout.Controls.Add(memberCount, 0, 2);
+        layout.SetColumnSpan(memberCount, 2);
+        memberList.ItemHeight = ScaleLayout(80);
+        memberList.Margin = new Padding(0, 4, 0, 0);
+        layout.Controls.Add(memberList, 0, 3);
+        layout.SetColumnSpan(memberList, 2);
+        chatsContent = layout;
+        settingsContent = BuildSettingsMenu();
+        membersDrawer.Controls.Add(layout);
+        membersDrawer.Controls.Add(settingsContent);
+        membersDrawer.Visible = false;
+    }
+
+    private Control BuildSidebarSearch(TextBox search)
+    {
         var searchShell = new RoundedPanel(capsule: true)
         {
             Dock = DockStyle.Fill, Margin = new Padding(8, 5, 8, 5),
@@ -256,7 +284,6 @@ internal sealed partial class ChatForm
         search.BorderStyle = BorderStyle.None;
         search.BackColor = ChatTheme.Raised;
         search.ForeColor = Ink;
-        search.AccessibleName = "Search chats";
         search.Dock = DockStyle.None;
         var searchTextHost = new Panel { Dock = DockStyle.Fill, Padding = Padding.Empty };
         searchTextHost.Controls.Add(search);
@@ -270,26 +297,7 @@ internal sealed partial class ChatForm
         search.FontChanged += (_, _) => PositionSearch();
         searchShell.Controls.Add(searchTextHost);
         searchShell.Controls.Add(searchIcon);
-        layout.Controls.Add(searchShell, 0, 1);
-        layout.SetColumnSpan(searchShell, 2);
-        memberCount.Margin = new Padding(12, 4, 0, 0);
-        layout.Controls.Add(memberCount, 0, 2);
-        layout.SetColumnSpan(memberCount, 2);
-        memberList.ItemHeight = ScaleLayout(80);
-        memberList.Margin = new Padding(0, 4, 0, 0);
-        layout.Controls.Add(memberList, 0, 3);
-        layout.SetColumnSpan(memberList, 2);
-        chatsContent = layout;
-        var settings = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
-            Padding = new Padding(18), Visible = false };
-        settings.Controls.Add(new Label { Text = "Settings", Font = TitleFont, AutoSize = true });
-        settings.Controls.Add(accountSummary);
-        disconnect.Margin = new Padding(0, 18, 0, 0);
-        settings.Controls.Add(disconnect);
-        settingsContent = settings;
-        membersDrawer.Controls.Add(layout);
-        membersDrawer.Controls.Add(settings);
-        membersDrawer.Visible = false;
+        return searchShell;
     }
 
     private static void StyleButton(Button button, bool primary)

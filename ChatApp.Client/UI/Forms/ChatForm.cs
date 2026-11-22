@@ -46,8 +46,6 @@ internal sealed partial class ChatForm : Form
     private readonly NavigationButton settingsNav = new() { AccessibleName = "Settings" };
     private readonly ToolTip tips = new();
     private Control chatsContent = null!;
-    private Control settingsContent = null!;
-    private readonly Label accountSummary = new() { AutoSize = true, MaximumSize = new Size(240, 0) };
     private readonly InteractiveButton disconnect = new() { Text = "Disconnect", AutoSize = true };
     private readonly MessageFeed messages = new();
     private Control composerBar = null!;
@@ -93,13 +91,7 @@ internal sealed partial class ChatForm : Form
         Controls.Add(chatRoot);
         Controls.Add(login);
         InitializeAttachmentDrop();
-        chatsNav.Click += (_, _) =>
-        {
-            settingsContent.Visible = false;
-            chatsContent.Visible = true;
-            SetMembersDrawer(true);
-            SelectNavigation(chatsNav);
-        };
+        chatsNav.Click += (_, _) => ReturnToChats();
         backToChats.Click += (_, _) => SetMembersDrawer(true);
         chatDivider.MouseDown += (_, e) =>
         {
@@ -115,7 +107,7 @@ internal sealed partial class ChatForm : Form
             LayoutChatColumns();
         };
         chatDivider.MouseUp += (_, _) => chatDivider.Capture = false;
-        settingsNav.Click += (_, _) => { ShowSettings(); SelectNavigation(settingsNav); };
+        settingsNav.Click += (_, _) => OpenSettings();
         search.TextChanged += (_, _) => RefreshConversationList();
         Shown += (_, _) =>
         {
@@ -425,8 +417,8 @@ internal sealed partial class ChatForm : Form
         previous?.Dispose();
         CloseImageViewer();
         recordingBar.Cancel();
-        settingsContent.Visible = false;
-        chatsContent.Visible = true;
+        settingsPage = SettingsPage.Closed;
+        settingsSearch.Clear();
         SelectNavigation(chatsNav);
         SetMembersDrawer(false);
         UpdateMembers([], "");
@@ -507,16 +499,6 @@ internal sealed partial class ChatForm : Form
         RefreshConversationList();
         RefreshControls();
         SetMembersDrawer(false);
-    }
-
-    private void ShowSettings()
-    {
-        accountSummary.Text = connection is not null && !connecting
-            ? $"Signed in as {joinedName}\n\nServer\n{host.Text}:{port.Text.Trim()}\n\nAppearance\nDark"
-            : "Connect to a server to start chatting.\n\nAppearance\nDark";
-        chatsContent.Visible = false;
-        settingsContent.Visible = true;
-        SetMembersDrawer(true);
     }
 
     private void RefreshConversationList()
