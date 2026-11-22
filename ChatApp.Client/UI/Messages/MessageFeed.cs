@@ -11,6 +11,7 @@ internal sealed class MessageFeed : Panel
     private static readonly Font SenderFont = new("Segoe UI", 9, FontStyle.Bold);
 
     private readonly MessageScrollBar scrollBar = new() { Visible = false };
+    private readonly JumpToLatestButton jumpToLatest = new() { Visible = false };
     private readonly List<MessageRow> rows = [];
     private int viewportHeight;
     private int contentHeight;
@@ -35,11 +36,15 @@ internal sealed class MessageFeed : Panel
         AccessibleName = "Chat messages";
         viewportHeight = ClientSize.Height;
         Controls.Add(scrollBar);
+        Controls.Add(jumpToLatest);
+        jumpToLatest.Click += (_, _) => scrollBar.Value = BottomOffset;
+        jumpToLatest.MouseWheel += (_, e) => OnMouseWheel(e);
         scrollBar.WheelRequested += (_, e) => OnMouseWheel(e);
         scrollBar.ValueChanged += (_, _) =>
         {
             if (arranging) return;
             PositionRows();
+            UpdateJumpToLatest();
             Update();
         };
     }
@@ -176,6 +181,7 @@ internal sealed class MessageFeed : Panel
             scrollBar.SetRange(contentHeight, viewportHeight, follow ? BottomOffset : Math.Min(previousOffset, BottomOffset));
             scrollBar.BringToFront();
             PositionRows();
+            UpdateJumpToLatest();
         }
         finally
         {
@@ -189,6 +195,26 @@ internal sealed class MessageFeed : Panel
             foreach (MessageRow row in rows) { row.ResizeTo(width); height += row.Height + row.LeadingGap; }
             return height;
         }
+    }
+
+    private void UpdateJumpToLatest()
+    {
+        int Scale(int value) => Math.Max(1, (int)Math.Round(value * DeviceDpi / 96d));
+        int diameter = Scale(40);
+        int gap = Scale(8);
+        bool show = BottomOffset - scrollBar.Value >= Scale(56)
+            && scrollBar.Left >= diameter + gap * 2 && ClientSize.Height >= diameter + gap * 2;
+        if (!show)
+        {
+            if (jumpToLatest.Focused && scrollBar.CanFocus) scrollBar.Focus();
+            jumpToLatest.Visible = false;
+            return;
+        }
+
+        jumpToLatest.Bounds = new Rectangle(scrollBar.Left - diameter - gap,
+            ClientSize.Height - diameter - gap, diameter, diameter);
+        jumpToLatest.BringToFront();
+        jumpToLatest.Visible = true;
     }
 
     private void PositionRows()
