@@ -12,6 +12,7 @@ A dark-themed Windows desktop messenger built with C# and an Elixir TCP server. 
 - **Attachment cards** showing the file name, type and size, with **Open** for supported types and **Save as…**.
 - **Image gallery** covering the application window, with previous/next arrows, a thumbnail strip and a green outline around the selected image. Zoom, pan, save the current image, or close the viewer to return to the conversation.
 - **Voice messages** with microphone recording, pause/resume, discard and send controls. Received messages have inline playback, waveform progress and a save option in the context menu.
+- **Searchable settings** for the current profile, server connection and keyboard shortcuts, with a disconnect action.
 - **Consistent button feedback** and a fixed doodle wallpaper that stays in place while messages scroll and the window is resized.
 
 ## Technologies
@@ -56,7 +57,7 @@ dotnet build ChatApp.Client/ChatApp.Client.csproj
 4. Click an image to open the gallery in the same window. Use the side arrows or thumbnails to browse images from that conversation. The toolbar provides zoom, fit, save and close controls.
 5. Click the microphone to record. Pause or resume as needed, discard with the trash button, or send with the green arrow. Recording has no fixed time cutoff; WAV format limits and available disk space still apply.
 6. Drag the divider to resize the sidebar. On narrow windows, use the back arrow to return to the chat list and select a conversation to reopen it.
-7. Open **Settings** from the gear at the bottom of the navigation rail to disconnect or view the current connection details.
+7. Open **Settings** using the gear at the bottom of the navigation rail. Search the settings list or select **Profile**, **Connection**, or **Keyboard shortcuts**. Use **Disconnect** to return to the welcome screen. The **Chats** button returns you to your conversation.
 
 File attachments must be non-empty and no larger than **10 MB each**. Folders are not sent. Drag-and-drop preparation is unavailable while recording or sending. A dropped batch is sent sequentially; an error stops the remaining files and reports how many were sent.
 
@@ -105,7 +106,7 @@ ChatApp/
 │   ├── Networking/         # TCP connection, JSON packets and voice transfer
 │   ├── Audio/              # Microphone capture, WAV handling and playback
 │   ├── UI/
-│   │   ├── Forms/          # Main window, welcome screen, attachments and gallery
+│   │   ├── Forms/          # Main window, welcome screen, settings and media
 │   │   ├── Controls/       # Shared buttons, interaction states and avatars
 │   │   ├── Messages/       # Message feed, scrolling and attachment cards
 │   │   ├── Attachments/    # Drop overlay and attachment review dialog
