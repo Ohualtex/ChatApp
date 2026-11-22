@@ -67,7 +67,6 @@ internal sealed partial class ChatForm
 
     private Control BuildLayout()
     {
-        StyleButton(connect, primary: true);
         foreach (Button action in new[] { attach, voice, send })
         {
             StyleButton(action, primary: false);
@@ -153,11 +152,8 @@ internal sealed partial class ChatForm
         header.Controls.Add(heading, 2, 0);
 
         var body = new Panel { Dock = DockStyle.Fill, Margin = Padding.Empty, BackColor = Canvas };
-        login = BuildLogin();
         body.Controls.Add(messages);
         BuildMembersDrawer();
-
-        body.Controls.Add(login);
 
         var normalHost = new Panel { Dock = DockStyle.Fill, Padding = new Padding(12, 8, 12, 10), BackColor = Color.Transparent };
         var inputShell = new RoundedPanel(capsule: true)
@@ -221,10 +217,6 @@ internal sealed partial class ChatForm
         layout.Controls.Add(main, 1, 0);
         StyleInput(composer);
         composer.BorderStyle = BorderStyle.None;
-        StyleInput(user);
-        StyleInput(host);
-        port.BackColor = ChatTheme.Raised;
-        port.ForeColor = Ink;
         return layout;
     }
 
@@ -302,52 +294,6 @@ internal sealed partial class ChatForm
         membersDrawer.Controls.Add(layout);
         membersDrawer.Controls.Add(settings);
         membersDrawer.Visible = false;
-    }
-
-    private Control BuildLogin()
-    {
-        var center = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 1, BackColor = Canvas };
-        center.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 100));
-        center.RowStyles.Add(new RowStyle(SizeType.Percent, 100));
-        var card = new TableLayoutPanel
-        {
-            AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Anchor = AnchorStyles.None,
-            Padding = new Padding(20), ColumnCount = 2, BackColor = ChatTheme.Surface
-        };
-        card.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 230));
-        card.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 98));
-        var title = new Label { Text = "Join the chat", Font = TitleFont, AutoSize = true, Margin = new Padding(3, 0, 0, 12) };
-        card.Controls.Add(title, 0, 0);
-        card.SetColumnSpan(title, 2);
-        AddField("User name", user, 1);
-        AddField("Server address", host, 3, span: false);
-        card.Controls.Add(new Label { Text = "Port", AutoSize = true }, 1, 3);
-        port.Dock = DockStyle.Fill;
-        port.AccessibleName = "Port";
-        card.Controls.Add(port, 1, 4);
-        connect.Dock = DockStyle.Fill;
-        connect.Margin = new Padding(3, 12, 3, 0);
-        card.Controls.Add(connect, 0, 5);
-        card.SetColumnSpan(connect, 2);
-        loginStatus.ForeColor = Muted;
-        loginStatus.Margin = new Padding(3, 8, 3, 0);
-        card.Controls.Add(loginStatus, 0, 6);
-        card.SetColumnSpan(loginStatus, 2);
-        center.Controls.Add(card, 0, 0);
-        return center;
-
-        void AddField(string label, Control field, int row, bool span = true)
-        {
-            var caption = new Label { Text = label, AutoSize = true };
-            field.AccessibleName = label;
-            card.Controls.Add(caption, 0, row);
-            card.Controls.Add(field, 0, row + 1);
-            if (span)
-            {
-                card.SetColumnSpan(caption, 2);
-                card.SetColumnSpan(field, 2);
-            }
-        }
     }
 
     private static void StyleButton(Button button, bool primary)

@@ -11,7 +11,7 @@ internal sealed partial class ChatForm
         if (imageViewer is not null || IsDisposed || closing.IsCancellationRequested) return;
         var viewer = new ImageViewer(items, index);
         imageReturnFocus = source;
-        imageCoveredLayout = Controls[0];
+        imageCoveredLayout = chatRoot;
         imageViewer = viewer;
         viewer.CloseRequested += (_, _) => CloseImageViewer();
         HideAttachmentDrop();

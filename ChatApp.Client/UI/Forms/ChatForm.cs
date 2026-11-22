@@ -24,7 +24,7 @@ internal sealed partial class ChatForm : Form
     private static readonly Font BodyFont = new("Segoe UI", 10);
     private static readonly Font ActionFont = new("Segoe UI", 10, FontStyle.Bold);
 
-    private readonly TextBox user = new() { PlaceholderText = "User name", Dock = DockStyle.Fill, MaxLength = 24 };
+    private readonly TextBox user = new() { PlaceholderText = "Your display name", Dock = DockStyle.Fill, MaxLength = 24 };
     private readonly TextBox host = new() { Text = "127.0.0.1", Dock = DockStyle.Fill };
     private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = false, AutoEllipsis = true };
@@ -50,8 +50,6 @@ internal sealed partial class ChatForm : Form
     private readonly Label accountSummary = new() { AutoSize = true, MaximumSize = new Size(240, 0) };
     private readonly InteractiveButton disconnect = new() { Text = "Disconnect", AutoSize = true };
     private readonly MessageFeed messages = new();
-    private readonly Label loginStatus = new() { AutoSize = true, MaximumSize = new Size(336, 0) };
-    private Control login = null!;
     private Control composerBar = null!;
     private readonly TextBox composer = new() { Dock = DockStyle.Fill, MaxLength = 1000, AccessibleName = "Type a message" };
     private readonly Button attach = new RecordingButton(RecordingAction.Attach) { AccessibleName = "Attach a file" };
@@ -90,7 +88,10 @@ internal sealed partial class ChatForm : Form
         Font = BodyFont;
         ForeColor = Ink;
         BackColor = Canvas;
-        Controls.Add(BuildLayout());
+        chatRoot = BuildLayout();
+        login = BuildLogin();
+        Controls.Add(chatRoot);
+        Controls.Add(login);
         InitializeAttachmentDrop();
         chatsNav.Click += (_, _) =>
         {
@@ -117,7 +118,11 @@ internal sealed partial class ChatForm : Form
         settingsNav.Click += (_, _) => { ShowSettings(); SelectNavigation(settingsNav); };
         accountNav.Click += (_, _) => { ShowSettings(); SelectNavigation(accountNav); };
         search.TextChanged += (_, _) => RefreshConversationList();
-        Shown += (_, _) => ChatTheme.DarkTitle(this);
+        Shown += (_, _) =>
+        {
+            ChatTheme.DarkTitle(this);
+            user.Focus();
+        };
         connect.Click += async (_, _) => await ConnectAndListenAsync();
         memberList.DrawItem += DrawConversation;
         memberList.MouseMove += (_, e) =>
@@ -159,7 +164,7 @@ internal sealed partial class ChatForm : Form
             if (compactLayout && memberList.SelectedItem is Conversation chat && !recordingBar.Active)
                 SelectConversation(chat);
         };
-        disconnect.Click += (_, _) => Disconnect("Disconnected");
+        disconnect.Click += (_, _) => Disconnect("Disconnected", error: false);
         attach.Click += async (_, _) => await PickAttachmentAsync();
         voice.Click += (_, _) => StartVoiceRecording();
         recordingBar.Changed += () => { if (!IsDisposed) RefreshControls(); };
@@ -200,7 +205,8 @@ internal sealed partial class ChatForm : Form
         string address = host.Text.Trim();
         if (name.Length == 0 || address.Length == 0)
         {
-            loginStatus.Text = "Enter a user name and server address.";
+            SetLoginStatus(name.Length == 0 ? "Enter a display name." : "Enter a server address.", error: true);
+            (name.Length == 0 ? user : host).Focus();
             return;
         }
 
@@ -208,7 +214,7 @@ internal sealed partial class ChatForm : Form
         CancellationToken lifetime = closing.Token;
         connection = next;
         connecting = true;
-        loginStatus.Text = "Connecting…";
+        SetLoginStatus("");
         RefreshControls();
         try
         {
@@ -224,10 +230,10 @@ internal sealed partial class ChatForm : Form
             messages.ClearMessages();
             composer.Clear();
             RefreshConversationList();
-            loginStatus.Text = "";
+            SetLoginStatus("");
             connecting = false;
+            showingList = false;
             RefreshControls();
-            SetMembersDrawer(true);
             composer.Focus();
             while (await next.ReadAsync(lifetime) is { } packet)
             {
@@ -404,20 +410,23 @@ internal sealed partial class ChatForm : Form
         }
     }
 
-    private void Disconnect(string message)
+    private void Disconnect(string message, bool error = true)
     {
         ChatConnection? previous = connection;
         connection = null;
         connecting = false;
         previous?.Dispose();
+        CloseImageViewer();
         recordingBar.Cancel();
         settingsContent.Visible = false;
         chatsContent.Visible = true;
         SelectNavigation(chatsNav);
         SetMembersDrawer(false);
         UpdateMembers([], "");
-        loginStatus.Text = message;
+        SetLoginStatus(message, error);
         RefreshControls();
+        if (user.Text.Trim().Length == 0) user.Focus();
+        else connect.Focus();
     }
 
     private void UpdateMembers(string[] names, string currentName)
@@ -623,11 +632,9 @@ internal sealed partial class ChatForm : Form
             : connecting ? "Connecting…" : "Offline";
         status.ForeColor = Muted;
         conversationAvatar.ShowConversation(selected.Title, selected.Peer is null);
-        login.Visible = !connected;
         if (preparingAttachments && attachmentStatus is not null) status.Text = attachmentStatus;
         messages.Visible = composerBar.Visible = disconnect.Visible = connected;
         membersToggle.Enabled = connected;
-        LayoutChatColumns();
         chatsNav.Enabled = connected && !preparingAttachments;
         settingsNav.Enabled = accountNav.Enabled = !preparingAttachments;
         backToChats.Enabled = connected && !preparingAttachments;
@@ -641,6 +648,8 @@ internal sealed partial class ChatForm : Form
         voice.Visible = !hasMessage;
         send.Visible = hasMessage;
         send.Enabled = connected && selected.Online && !sending && !preparingAttachments && hasMessage;
+        RefreshLoginView(connected);
+        LayoutChatColumns();
         if (!CanAcceptFileDrop()) HideAttachmentDrop();
     }
 }
