@@ -1,4 +1,5 @@
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.Net.Sockets;
 using System.Text.Json;
 
@@ -26,7 +27,7 @@ internal sealed partial class ChatForm : Form
 
     private readonly TextBox user = new() { PlaceholderText = "Your display name", Dock = DockStyle.Fill, MaxLength = 24 };
     private readonly TextBox host = new() { Text = "127.0.0.1", Dock = DockStyle.Fill };
-    private readonly NumericUpDown port = new() { Minimum = 1, Maximum = 65535, Value = 5050, Width = 72 };
+    private readonly TextBox port = new() { Text = "5050" };
     private readonly Label status = new() { Text = "Disconnected", AutoSize = false, AutoEllipsis = true };
     private readonly ConversationAvatar conversationAvatar = new();
     private readonly InteractiveButton connect = new() { Text = "Connect", AutoSize = true };
@@ -210,6 +211,14 @@ internal sealed partial class ChatForm : Form
             return;
         }
 
+        if (!int.TryParse(port.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int serverPort)
+            || serverPort is < 1 or > 65535)
+        {
+            SetLoginStatus("Enter a port number from 1 to 65535.", error: true);
+            port.Focus();
+            return;
+        }
+
         using var next = new ChatConnection();
         CancellationToken lifetime = closing.Token;
         connection = next;
@@ -220,7 +229,7 @@ internal sealed partial class ChatForm : Form
         {
             using var handshake = CancellationTokenSource.CreateLinkedTokenSource(lifetime);
             handshake.CancelAfter(TimeSpan.FromSeconds(6));
-            joinedName = await next.ConnectAsync(address, (int)port.Value, name, handshake.Token);
+            joinedName = await next.ConnectAsync(address, serverPort, name, handshake.Token);
             ClearVoiceHistory();
             conversations.Clear();
             selected = new Conversation(null);
@@ -505,7 +514,7 @@ internal sealed partial class ChatForm : Form
     private void ShowSettings()
     {
         accountSummary.Text = connection is not null && !connecting
-            ? $"Signed in as {joinedName}\n\nServer\n{host.Text}:{port.Value}\n\nAppearance\nDark"
+            ? $"Signed in as {joinedName}\n\nServer\n{host.Text}:{port.Text.Trim()}\n\nAppearance\nDark"
             : "Connect to a server to start chatting.\n\nAppearance\nDark";
         chatsContent.Visible = false;
         settingsContent.Visible = true;

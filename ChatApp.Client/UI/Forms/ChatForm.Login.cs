@@ -50,7 +50,7 @@ internal sealed partial class ChatForm
         Arrange();
         return page;
 
-        Panel CreateField(string label, Control input, int tab)
+        Panel CreateField(string label, TextBox input, int tab)
         {
             var field = new Panel { TabIndex = tab };
             var caption = new Label { Text = label, Font = FieldFont, ForeColor = Ink, Dock = DockStyle.Top };
@@ -60,8 +60,7 @@ internal sealed partial class ChatForm
             input.ForeColor = Ink;
             input.Dock = DockStyle.None;
             input.TabIndex = 0;
-            if (input is TextBox textBox) textBox.BorderStyle = BorderStyle.None;
-            if (input is NumericUpDown spinner) spinner.BorderStyle = BorderStyle.None;
+            input.BorderStyle = BorderStyle.None;
             surface.Controls.Add(input);
             field.Controls.Add(surface);
             field.Controls.Add(caption);
